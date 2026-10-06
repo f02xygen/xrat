@@ -50,7 +50,7 @@ impl<'a> RuntimeService<'a> {
             return Err(AppError::NoRuntimeInboundEnabled);
         }
 
-        let node = node_from_record(config)?;
+        let mut node = node_from_record(config)?;
         let engine = resolve_runtime_engine(runtime.engine.as_str(), &node)?;
         if runtime.tun.enabled && runtime.engine == "v2ray" {
             return Err(AppError::InvalidArgument(
@@ -60,6 +60,46 @@ impl<'a> RuntimeService<'a> {
         }
         if engine == RuntimeEngine::Singbox {
             return self.resolve_singbox_launch(&node, socks, http, shadowsocks);
+        }
+
+        let mut resolved_hosts = Vec::new();
+        if runtime.tun.enabled {
+            if node.address.parse::<std::net::IpAddr>().is_err() {
+                if (node.tls.as_deref() == Some("tls") || node.tls.as_deref() == Some("reality"))
+                    && node.sni.is_none()
+                {
+                    node.sni = Some(node.address.clone());
+                }
+                let ip = self
+                    .process_ports
+                    .resolver
+                    .resolve(&node.address, node.port)
+                    .ok_or_else(|| {
+                        AppError::InvalidArgument(format!(
+                            "failed to resolve proxy endpoint \"{}\" for TUN capture",
+                            node.address
+                        ))
+                    })?;
+                resolved_hosts.push((node.address.clone(), ip.to_string()));
+                node.address = ip.to_string();
+            }
+            for server in &self.context.app_config.dns.servers {
+                if let Some(host) = extract_dns_server_host(server)
+                    && host.parse::<std::net::IpAddr>().is_err()
+                    && !resolved_hosts.iter().any(|(h, _)| h == host)
+                {
+                    let ip = self
+                        .process_ports
+                        .resolver
+                        .resolve(host, 443)
+                        .ok_or_else(|| {
+                            AppError::InvalidArgument(format!(
+                                "failed to resolve DNS provider host \"{host}\" for TUN capture"
+                            ))
+                        })?;
+                    resolved_hosts.push((host.to_string(), ip.to_string()));
+                }
+            }
         }
 
         let binary_path = match runtime.engine.as_str() {
@@ -111,23 +151,14 @@ impl<'a> RuntimeService<'a> {
         }
 
         if runtime.tun.enabled {
-            let mut tun_settings = serde_json::json!({
-                "name": runtime.tun.interface_name,
-                "mtu": runtime.tun.mtu,
-                "gateway": runtime.tun.address,
-            });
-            if runtime.tun.auto_route {
-                let routes = xray_tun_routes(&runtime.tun.address);
-                tun_settings["autoSystemRoutingTable"] = serde_json::json!(routes);
-                tun_settings["autoOutboundsInterface"] = serde_json::json!("auto");
-            }
-            xray_config.inbounds.push(Inbound {
-                tag: "tun-in".to_string(),
-                port: None,
-                listen: None,
-                protocol: "tun".to_string(),
-                settings: Some(tun_settings),
-            });
+            let tun_options = XrayTunCaptureOptions {
+                interface_name: &runtime.tun.interface_name,
+                mtu: runtime.tun.mtu,
+                address: &runtime.tun.address,
+                auto_route: runtime.tun.auto_route,
+                resolved_hosts: &resolved_hosts,
+            };
+            enable_tun_capture(&mut xray_config, &tun_options);
         }
 
         if runtime.stats.enabled {
@@ -360,29 +391,24 @@ fn resolve_runtime_engine(
     }
 }
 
-fn xray_tun_routes(address: &[String]) -> Vec<&'static str> {
-    let mut routes = Vec::new();
-    let mut has_ipv4 = false;
-    let mut has_ipv6 = false;
-
-    for addr in address {
-        let ip_part = addr.split('/').next().unwrap_or(addr).trim();
-        if let Ok(ip) = ip_part.parse::<std::net::IpAddr>() {
-            match ip {
-                std::net::IpAddr::V4(_) => has_ipv4 = true,
-                std::net::IpAddr::V6(_) => has_ipv6 = true,
-            }
-        }
-    }
-
-    if has_ipv4 {
-        routes.push("0.0.0.0/0");
-    }
-    if has_ipv6 {
-        routes.push("::/0");
-    }
-    if routes.is_empty() {
-        routes.push("0.0.0.0/0");
-    }
-    routes
+fn extract_dns_server_host(server: &str) -> Option<&str> {
+    let server = server.trim();
+    let rest = if let Some(stripped) = server.strip_prefix("https://") {
+        stripped
+    } else if let Some(stripped) = server.strip_prefix("http://") {
+        stripped
+    } else if let Some(stripped) = server.strip_prefix("tcp://") {
+        stripped
+    } else if let Some(stripped) = server.strip_prefix("udp://") {
+        stripped
+    } else if let Some(stripped) = server.strip_prefix("tls://") {
+        stripped
+    } else if let Some(stripped) = server.strip_prefix("quic://") {
+        stripped
+    } else {
+        server
+    };
+    let host_port = rest.split('/').next().unwrap_or(rest);
+    let host = host_port.split(':').next().unwrap_or(host_port);
+    if host.is_empty() { None } else { Some(host) }
 }

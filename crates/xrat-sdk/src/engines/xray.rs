@@ -8,8 +8,8 @@ pub use xrat_engines::xray::config::{
     MuxOptions, Outbound, RawSettings, RealitySettings, RoutingConfig, RoutingRule, Sockopt,
     StreamSettings, TlsSettings, WsSettings, XhttpSettings, XrayCompatibilityPolicy,
     XrayCompatibilityTarget, XrayConfig, XrayDnsConfig, XrayDnsHostValue, XrayGenOptions,
-    XrayRouteList, XrayRoutingOptions, enable_stats_api, generate_probe_config,
-    generate_probe_config_with_options, generate_runtime_config,
+    XrayRouteList, XrayRoutingOptions, XrayTunCaptureOptions, enable_stats_api, enable_tun_capture,
+    generate_probe_config, generate_probe_config_with_options, generate_runtime_config,
     generate_runtime_config_for_inbounds, generate_runtime_config_for_inbounds_with_options,
     generate_runtime_config_with_inbounds,
 };

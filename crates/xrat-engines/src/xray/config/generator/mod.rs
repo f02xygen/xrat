@@ -17,3 +17,4 @@ pub use builder::generate_runtime_config;
 pub use builder::generate_runtime_config_for_inbounds;
 pub use builder::generate_runtime_config_for_inbounds_with_options;
 pub use builder::generate_runtime_config_with_inbounds;
+pub use builder::{XrayTunCaptureOptions, enable_tun_capture};

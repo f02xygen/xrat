@@ -19,7 +19,9 @@ pub(super) use xrat_engines::singbox::{
     SingboxClashApi, SingboxConfig, SingboxInbound, SingboxInboundUser, SingboxTunOptions,
     generate_singbox_runtime_config_with_dns, process_mgmt as singbox_runtime,
 };
-pub(super) use xrat_engines::xray::config::{Inbound, enable_stats_api};
+pub(super) use xrat_engines::xray::config::{
+    Inbound, XrayTunCaptureOptions, enable_stats_api, enable_tun_capture,
+};
 pub(super) use xrat_engines::xray::{
     generate_runtime_config_for_inbounds_with_options, runtime_process as xray_runtime,
 };

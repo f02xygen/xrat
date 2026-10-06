@@ -132,6 +132,167 @@ pub fn enable_stats_api(config: &mut XrayConfig, host: &str, port: u16) {
     );
 }
 
+#[derive(Debug, Clone)]
+pub struct XrayTunCaptureOptions<'a> {
+    pub interface_name: &'a str,
+    pub mtu: u32,
+    pub address: &'a [String],
+    pub auto_route: bool,
+    pub resolved_hosts: &'a [(String, String)],
+}
+
+/// Enable TUN capture on an already-built Xray runtime config:
+/// - adds a `tun` inbound tagged `tun-in` with routing/interface settings
+/// - adds a `dns` outbound tagged `dns-out`
+/// - inserts a priority routing rule diverting port 53 traffic from `tun-in` to `dns-out`
+/// - ensures private/LAN IP ranges route `direct` to maintain local connectivity
+/// - ensures DNS servers are configured (falling back to DoH over IP) and populates `dns.hosts`
+pub fn enable_tun_capture(config: &mut XrayConfig, options: &XrayTunCaptureOptions<'_>) {
+    use crate::xray::config::{
+        Outbound, RoutingConfig, RoutingRule, XrayDnsConfig, XrayDnsHostValue,
+    };
+
+    let mut tun_settings = json!({
+        "name": options.interface_name,
+        "mtu": options.mtu,
+        "gateway": options.address,
+    });
+    if options.auto_route {
+        let routes = xray_tun_routes(options.address);
+        tun_settings["autoSystemRoutingTable"] = json!(routes);
+        tun_settings["autoOutboundsInterface"] = json!("auto");
+    }
+    config.inbounds.push(Inbound {
+        tag: "tun-in".to_string(),
+        port: None,
+        listen: None,
+        protocol: "tun".to_string(),
+        settings: Some(tun_settings),
+    });
+
+    if !config
+        .outbounds
+        .iter()
+        .any(|outbound| outbound.tag == "dns-out")
+    {
+        config.outbounds.push(Outbound {
+            tag: "dns-out".to_string(),
+            protocol: "dns".to_string(),
+            settings: json!({}),
+            stream_settings: None,
+            mux: None,
+        });
+    }
+
+    if !config
+        .outbounds
+        .iter()
+        .any(|outbound| outbound.tag == "direct")
+    {
+        config.outbounds.push(Outbound {
+            tag: "direct".to_string(),
+            protocol: "freedom".to_string(),
+            settings: json!({}),
+            stream_settings: None,
+            mux: None,
+        });
+    }
+
+    let routing = config.routing.get_or_insert_with(|| RoutingConfig {
+        domain_strategy: None,
+        rules: Vec::new(),
+    });
+    routing.rules.insert(
+        0,
+        RoutingRule {
+            kind: "field".to_string(),
+            domain: None,
+            ip: None,
+            port: Some("53".to_string()),
+            network: Some("tcp,udp".to_string()),
+            inbound_tag: Some(vec!["tun-in".to_string()]),
+            outbound_tag: "dns-out".to_string(),
+        },
+    );
+
+    let private_ips = vec![
+        "10.0.0.0/8".to_string(),
+        "172.16.0.0/12".to_string(),
+        "192.168.0.0/16".to_string(),
+        "127.0.0.0/8".to_string(),
+        "fc00::/7".to_string(),
+        "fe80::/10".to_string(),
+    ];
+    let has_private_direct_rule = routing.rules.iter().any(|rule| {
+        rule.outbound_tag == "direct"
+            && rule.ip.as_ref().is_some_and(|ips| {
+                ips.iter()
+                    .any(|ip| ip == "10.0.0.0/8" || ip == "geoip:private")
+            })
+    });
+    if !has_private_direct_rule {
+        routing.rules.push(RoutingRule {
+            kind: "field".to_string(),
+            domain: None,
+            ip: Some(private_ips),
+            port: None,
+            network: None,
+            inbound_tag: None,
+            outbound_tag: "direct".to_string(),
+        });
+    }
+
+    let dns = config.dns.get_or_insert_with(|| XrayDnsConfig {
+        servers: vec![
+            "https://1.1.1.1/dns-query".to_string(),
+            "https://8.8.8.8/dns-query".to_string(),
+        ],
+        hosts: std::collections::BTreeMap::new(),
+        query_strategy: "UseIPv4".to_string(),
+        use_system_hosts: true,
+        disable_cache: false,
+        disable_fallback: false,
+        enable_parallel_query: true,
+    });
+    if dns.servers.is_empty() {
+        dns.servers = vec![
+            "https://1.1.1.1/dns-query".to_string(),
+            "https://8.8.8.8/dns-query".to_string(),
+        ];
+    }
+    for (domain, ip) in options.resolved_hosts {
+        dns.hosts
+            .insert(domain.clone(), XrayDnsHostValue::One(ip.clone()));
+    }
+}
+
+fn xray_tun_routes(address: &[String]) -> Vec<&'static str> {
+    let mut routes = Vec::new();
+    let mut has_ipv4 = false;
+    let mut has_ipv6 = false;
+
+    for addr in address {
+        let ip_part = addr.split('/').next().unwrap_or(addr).trim();
+        if let Ok(ip) = ip_part.parse::<std::net::IpAddr>() {
+            match ip {
+                std::net::IpAddr::V4(_) => has_ipv4 = true,
+                std::net::IpAddr::V6(_) => has_ipv6 = true,
+            }
+        }
+    }
+
+    if has_ipv4 {
+        routes.push("0.0.0.0/0");
+    }
+    if has_ipv6 {
+        routes.push("::/0");
+    }
+    if routes.is_empty() {
+        routes.push("0.0.0.0/0");
+    }
+    routes
+}
+
 pub(super) fn build_inbounds(
     socks: Option<(&str, u16, bool)>,
     http: Option<(&str, u16)>,

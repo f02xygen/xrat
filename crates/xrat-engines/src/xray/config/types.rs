@@ -59,6 +59,10 @@ pub struct RoutingRule {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ip: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub inbound_tag: Option<Vec<String>>,
     pub outbound_tag: String,
 }

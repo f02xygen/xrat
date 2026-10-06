@@ -134,6 +134,7 @@ pub struct RuntimeProcessPorts {
     pub signals: Arc<dyn crate::signals::ProcessSignals>,
     pub connector: Arc<dyn TcpConnector>,
     pub tun: Arc<dyn crate::net::TunInterfaceOps>,
+    pub resolver: Arc<dyn crate::net::HostResolver>,
 }
 impl Default for RuntimeProcessPorts {
     fn default() -> Self {
@@ -143,6 +144,7 @@ impl Default for RuntimeProcessPorts {
             signals: Arc::new(crate::signals::SystemProcessSignals::default()),
             connector: Arc::new(TokioTcpConnector),
             tun: Arc::new(crate::net::SystemTunInterfaceOps),
+            resolver: Arc::new(crate::net::SystemHostResolver),
         }
     }
 }
