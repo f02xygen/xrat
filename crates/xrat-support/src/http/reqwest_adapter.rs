@@ -91,7 +91,16 @@ pub(super) fn validate_proxy(value: &str) -> Result<(), HttpError> {
     reqwest::Proxy::all(value).map(|_| ()).map_err(adapt_error)
 }
 fn adapt_error(error: reqwest::Error) -> HttpError {
-    let message = error.to_string();
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(&error);
+    while let Some(cause) = source {
+        let detail = cause.to_string();
+        if !detail.is_empty() && !message.ends_with(&detail) {
+            message.push_str(": ");
+            message.push_str(&detail);
+        }
+        source = cause.source();
+    }
     let kind = if error.is_timeout() {
         HttpErrorKind::Timeout
     } else if message.to_lowercase().contains("tls") {
@@ -110,4 +119,17 @@ fn adapt_error(error: reqwest::Error) -> HttpError {
         HttpErrorKind::Other
     };
     HttpError::new(kind, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_underlying_request_error_details() {
+        let error = reqwest::Client::new().get("invalid").build().unwrap_err();
+        let source = std::error::Error::source(&error).unwrap().to_string();
+        let adapted = adapt_error(error);
+        assert!(adapted.message.contains(&source));
+    }
 }

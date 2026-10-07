@@ -136,14 +136,27 @@ async fn download(
     url: &str,
     destination: &Path,
 ) -> crate::app::Result<()> {
-    let response = client.get(url).send().await?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|source| AppError::ReleaseHttp {
+            operation: "downloading xrat release checksums from github.com",
+            source,
+        })?;
     if !response.status().is_success() {
         return Err(AppError::InvalidArgument(format!(
             "download failed for {url}: HTTP {}",
             response.status()
         )));
     }
-    let bytes = response.bytes().await?;
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|source| AppError::ReleaseHttp {
+            operation: "reading xrat release checksums from github.com",
+            source,
+        })?;
     std::fs::write(destination, &bytes)?;
     Ok(())
 }
@@ -154,7 +167,14 @@ async fn download_with_progress(
     destination: &Path,
     label: &str,
 ) -> crate::app::Result<()> {
-    let mut response = client.get(url).send().await?;
+    let mut response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|source| AppError::ReleaseHttp {
+            operation: "downloading xrat release archive from github.com",
+            source,
+        })?;
     if !response.status().is_success() {
         return Err(AppError::InvalidArgument(format!(
             "download failed for {url}: HTTP {}",
@@ -168,7 +188,14 @@ async fn download_with_progress(
         format!("downloading {label}"),
     );
     let mut file = std::fs::File::create(destination)?;
-    while let Some(chunk) = response.chunk().await? {
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|source| AppError::ReleaseHttp {
+            operation: "reading xrat release archive from github.com",
+            source,
+        })?
+    {
         file.write_all(&chunk)?;
         progress.inc(chunk.len() as u64);
     }
