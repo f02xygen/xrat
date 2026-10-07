@@ -44,6 +44,7 @@ vless://<uuid>@<address>:<port>?type=<network>&security=<tls>&sni=<sni>&host=<ho
 | `flow`     | query    | No       | Flow control, e.g. `xtls-rprx-vision`                       |
 | `fp`       | query    | No       | uTLS fingerprint, e.g. `chrome` (REALITY defaults `chrome`) |
 | `alpn`     | query    | No       | Comma-separated ALPN list (TLS)                             |
+| `cs`       | query    | TLS      | Colon-separated TLS cipher suites (`cipherSuites`)          |
 | `mode`     | query    | No       | xhttp/gRPC mode, e.g. `packet-up`                           |
 | `pbk`      | query    | REALITY  | REALITY public key (required when `security=reality`)       |
 | `sid`      | query    | No       | REALITY short ID                                            |

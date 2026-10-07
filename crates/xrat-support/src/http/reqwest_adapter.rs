@@ -1,28 +1,28 @@
 use super::*;
 
+const DEFAULT_USER_AGENT: &str = concat!("xrat/", env!("CARGO_PKG_VERSION"));
+
 pub struct ReqwestHttpClient {
     client: reqwest::Client,
     options: HttpOptions,
 }
 impl Default for ReqwestHttpClient {
     fn default() -> Self {
-        Self {
+        Self::new(&HttpOptions::default()).unwrap_or_else(|_| Self {
             client: reqwest::Client::new(),
             options: HttpOptions::default(),
-        }
+        })
     }
 }
 impl ReqwestHttpClient {
     pub fn new(options: &HttpOptions) -> Result<Self, HttpError> {
-        let mut builder = reqwest::Client::builder();
+        let mut builder = reqwest::Client::builder()
+            .user_agent(options.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT));
         if let Some(timeout) = options.timeout {
             builder = builder.timeout(timeout);
         }
         if let Some(proxy) = &options.proxy {
             builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(adapt_error)?);
-        }
-        if let Some(agent) = &options.user_agent {
-            builder = builder.user_agent(agent);
         }
         builder = match options.redirect {
             RedirectPolicy::Default => builder,
@@ -79,7 +79,11 @@ impl ResponseBody for ReqwestBody {
 pub struct ReqwestBlockingHttpClient;
 impl BlockingHttpClient for ReqwestBlockingHttpClient {
     fn get(&self, url: &str) -> Result<BlockingResponse, HttpError> {
-        let response = reqwest::blocking::get(url).map_err(adapt_error)?;
+        let client = reqwest::blocking::Client::builder()
+            .user_agent(DEFAULT_USER_AGENT)
+            .build()
+            .map_err(adapt_error)?;
+        let response = client.get(url).send().map_err(adapt_error)?;
         let status = response.status();
         Ok(BlockingResponse {
             status,

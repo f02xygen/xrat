@@ -6,10 +6,6 @@ pub(crate) fn merge_failure(
     failure_kind: Option<FailureKind>,
     failure_reason: Option<String>,
 ) {
-    if result.failure_kind.is_some() {
-        return;
-    }
-
     result.failure_kind = failure_kind;
     result.failure_reason = failure_reason;
 }

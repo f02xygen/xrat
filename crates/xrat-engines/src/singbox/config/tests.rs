@@ -53,6 +53,12 @@ fn generates_vless_tls_websocket_without_xray_fields() {
     node.extensions = Some(BTreeMap::from([
         ("insecure".to_string(), serde_json::json!("1")),
         ("alpn".to_string(), serde_json::json!("h2,http/1.1")),
+        (
+            "cs".to_string(),
+            serde_json::json!(
+                "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+            ),
+        ),
     ]));
 
     let config = generate_singbox_probe_config(&node, 1080).unwrap();
@@ -63,6 +69,13 @@ fn generates_vless_tls_websocket_without_xray_fields() {
     assert_eq!(
         outbound["tls"]["alpn"],
         serde_json::json!(["h2", "http/1.1"])
+    );
+    assert_eq!(
+        outbound["tls"]["cipher_suites"],
+        serde_json::json!([
+            "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+            "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+        ])
     );
     assert_eq!(outbound["transport"]["type"], "ws");
     assert_eq!(outbound["transport"]["path"], "/stream");
