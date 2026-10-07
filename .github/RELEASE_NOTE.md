@@ -1,53 +1,17 @@
-## xrat v0.23.0
+## xrat v0.23.1
 
-TUN controls now apply to the current connection, with checks before replacement
-and rollback to the previous mode when startup or saving fails. This release also
-fixes oversized GitHub prerelease lookups in the core installer.
+This patch release makes failed GitHub release requests actionable.
 
-### Live TUN controls
+### Fixes
 
-- `xrat tun enable` reconnects the current config with TUN capture;
-  `xrat tun disable` keeps the same config connected in local proxy mode.
-- Engine support, privileges, interface ownership, and native config validation
-  are checked before stopping the current session. Failed replacements attempt
-  to restore the previous mode and connection; configuration is saved only after
-  a successful change. Repeating an already applied command avoids a restart.
-- When disconnected, the choice is saved for the next connection.
-- Press **U** (Shift+U) in the TUI for the same live toggle. Saving only
-  `runtime.tun.enabled` in settings also applies immediately; save other settings
-  separately when changing that flag.
-- CLI requests go through the daemon. For a standalone TUI connection, press
-  **U** in that TUI instead of taking over its runtime from the CLI.
-
-### Clearer status and installer errors
-
-- `xrat tun status` separates the saved setting, active owned interface, engine
-  support, and privilege readiness. `xrat status` also reports TUN state.
-- Enable and disable support `--json`; text output explains whether the mode is
-  active or saved for the next connection and gives relevant repair commands.
-- Correct the minimum Xray version for managed Linux TUN to **26.7.11**.
-  Unsupported or unknown versions are rejected before replacing a connection.
-- Prerelease installation requests smaller GitHub release pages and follows
-  pagination when needed. Metadata downloads allow 30 seconds, and timeout
-  errors suggest retrying or selecting an explicit version.
+- `xrat upgrade` identifies whether release lookup, archive download, or checksum download failed instead of reporting only `HTTP request failed`.
+- HTTP errors retain their underlying causes, including connection and TLS details, and release errors suggest retrying through a working proxy.
+- Upgrade documentation includes a SOCKS proxy example and explains the difference between selecting a release version and building from a local checkout.
 
 ### Upgrade notes
 
-- Normal TUN toggles no longer require setup or a daemon restart. Restart a
-  running daemon once after upgrading from an older version to load live toggle
-  support. First-time privileges may also require one owner restart.
-- Upgrading xrat or the engine removes file capabilities. Run `xrat tun setup`
-  again as needed; restart a daemon or standalone TUI that lacks effective
-  privileges before enabling TUN.
-- TUN remains opt-in and Linux-only. Xray and sing-box are supported; DNS
-  interception and V2Ray TUN remain unsupported. No database migration is needed.
-- Active TUN status verifies a running session and an owned kernel interface; it
-  does not prove external traffic or DNS reachability. Regression tests cover
-  injected lifecycle failures; live privileged traffic capture remains unverified.
+This improves diagnostics; it does not repair blocked or unavailable GitHub connectivity. The fix is available after upgrading to this version. If release downloads are unreachable, use a working proxy or `xrat upgrade --source` from a local checkout (Cargo may still need missing dependencies).
 
-### Contributors
+No CLI flags or database migrations changed. TUN behavior remains as documented for v0.23.0; after replacing the binary, reapply TUN privileges as needed and restart the running daemon to load the new executable.
 
-Thanks to [@f02xygen](https://github.com/f02xygen) for the managed TUN foundation
-in [PR #6](https://github.com/mhyrzt/xrat/pull/6), released in v0.22.0.
-
-**Full Changelog**: https://github.com/mhyrzt/xrat/compare/v0.22.1...v0.23.0
+**Full Changelog**: https://github.com/mhyrzt/xrat/compare/v0.23.0...v0.23.1
