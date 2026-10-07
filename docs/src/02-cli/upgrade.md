@@ -11,8 +11,8 @@ The new binary is staged in the same directory as the current executable and
 then atomically renamed over it, so an in-place upgrade is safe even while the
 command is running. Upgrade discovery and installation run before database
 initialization, allowing `xrat upgrade` to recover from a database migration or
-connection failure. The newly installed binary still runs migrations before
-the command reports success.
+connection failure. The newly installed binary still runs migrations before the
+command reports success.
 
 ## Flags
 
@@ -48,6 +48,18 @@ macOS (`x86_64` and `aarch64`, darwin). On other platforms or architectures
 ```bash
 xrat upgrade --version v0.2.1 --force
 ```
+
+If GitHub requests fail, check connectivity to both `api.github.com` (release
+lookup) and `github.com` (archives and checksums). You can use a working local
+SOCKS proxy; replace the example port with your proxy's port:
+
+```bash
+ALL_PROXY=socks5h://127.0.0.1:1080 xrat upgrade
+```
+
+`--version` skips release lookup but still requires archive downloads. A local
+source build below avoids GitHub release requests; Cargo may still need network
+access for missing dependencies.
 
 ## Build from source
 

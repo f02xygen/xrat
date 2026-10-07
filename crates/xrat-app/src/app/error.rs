@@ -28,6 +28,15 @@ pub enum AppError {
     #[error("HTTP request failed")]
     Http(#[from] xrat_support::http::HttpError),
 
+    #[error(
+        "{operation} failed: {source}. Check access to GitHub; if needed, retry with HTTPS_PROXY or ALL_PROXY set to your working proxy."
+    )]
+    ReleaseHttp {
+        operation: &'static str,
+        #[source]
+        source: xrat_support::http::HttpError,
+    },
+
     #[error("JSON serialization failed")]
     Json(#[from] serde_json::Error),
 

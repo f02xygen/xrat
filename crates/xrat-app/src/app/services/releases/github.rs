@@ -2,6 +2,9 @@ use crate::app::ports::ReleaseProvider;
 
 pub struct GithubReleaseProvider;
 
+#[cfg(test)]
+mod failure_tests;
+
 #[async_trait::async_trait]
 impl ReleaseProvider for GithubReleaseProvider {
     async fn latest_tag(&self, timeout_secs: u64) -> crate::app::Result<String> {
@@ -34,14 +37,25 @@ async fn latest_tag_with_client(client: &xrat_support::http::Client) -> crate::a
             super::REPO
         ))
         .send()
-        .await?;
+        .await
+        .map_err(|source| crate::app::AppError::ReleaseHttp {
+            operation: "querying latest xrat release from api.github.com",
+            source,
+        })?;
     if !response.status().is_success() {
         return Err(crate::app::AppError::InvalidArgument(format!(
             "failed to query latest release: HTTP {}",
             response.status()
         )));
     }
-    let payload: serde_json::Value = serde_json::from_str(&response.text().await?)?;
+    let body = response
+        .text()
+        .await
+        .map_err(|source| crate::app::AppError::ReleaseHttp {
+            operation: "reading latest xrat release metadata from api.github.com",
+            source,
+        })?;
+    let payload: serde_json::Value = serde_json::from_str(&body)?;
     payload
         .get("tag_name")
         .and_then(|value| value.as_str())
