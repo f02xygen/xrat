@@ -4,6 +4,7 @@ pub(crate) async fn run_icmp_stage(
     config: &ConfigRecord,
     settings: &ResolvedTestSettings,
     result: &mut TestResult,
+    failure_selection: &mut FailureSelection,
     print_progress: bool,
 ) -> crate::app::Result<()> {
     if print_progress {
@@ -15,7 +16,13 @@ pub(crate) async fn run_icmp_stage(
 
     result.icmp_ok = icmp_result.success;
     result.icmp_ms = icmp_result.latency_ms;
-    merge_failure(result, icmp_result.failure_kind, icmp_result.failure_reason);
+    merge_failure(
+        result,
+        failure_selection,
+        FailureStage::Icmp,
+        icmp_result.failure_kind,
+        icmp_result.failure_reason,
+    );
 
     if print_progress {
         print_stage_result(
@@ -32,6 +39,7 @@ pub(crate) async fn run_tcp_gate(
     config: &ConfigRecord,
     settings: &ResolvedTestSettings,
     result: &mut TestResult,
+    failure_selection: &mut FailureSelection,
     print_progress: bool,
 ) -> crate::app::Result<()> {
     if print_progress {
@@ -43,7 +51,13 @@ pub(crate) async fn run_tcp_gate(
 
     result.tcp_ok = tcp_result.success;
     result.tcp_ms = tcp_result.latency_ms;
-    merge_failure(result, tcp_result.failure_kind, tcp_result.failure_reason);
+    merge_failure(
+        result,
+        failure_selection,
+        FailureStage::Tcp,
+        tcp_result.failure_kind,
+        tcp_result.failure_reason,
+    );
 
     if print_progress {
         print_stage_result(
@@ -60,6 +74,7 @@ pub(crate) async fn run_real_delay_stage(
     node: &Node,
     settings: &ResolvedTestSettings,
     result: &mut TestResult,
+    failure_selection: &mut FailureSelection,
     print_progress: bool,
 ) -> crate::app::Result<()> {
     if print_progress {
@@ -88,6 +103,8 @@ pub(crate) async fn run_real_delay_stage(
     result.dial_endpoint_ip = real_delay_result.dial_endpoint_ip;
     merge_failure(
         result,
+        failure_selection,
+        FailureStage::RealDelay,
         real_delay_result.failure_kind,
         real_delay_result.failure_reason,
     );

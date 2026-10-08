@@ -1,11 +1,31 @@
 use super::*;
 use crate::app::terminal::output;
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum FailureStage {
+    Icmp,
+    Tcp,
+    RealDelay,
+    Download,
+    Upload,
+}
+
+#[derive(Default)]
+pub(crate) struct FailureSelection {
+    stage: Option<FailureStage>,
+}
+
 pub(crate) fn merge_failure(
     result: &mut TestResult,
+    selection: &mut FailureSelection,
+    stage: FailureStage,
     failure_kind: Option<FailureKind>,
     failure_reason: Option<String>,
 ) {
+    if selection.stage.is_some_and(|selected| selected > stage) {
+        return;
+    }
+    selection.stage = Some(stage);
     result.failure_kind = failure_kind;
     result.failure_reason = failure_reason;
 }
@@ -45,3 +65,6 @@ pub(crate) fn print_stage_result(
         println!("FAIL {}", failure_reason.unwrap_or("failed"));
     }
 }
+
+#[cfg(test)]
+mod tests;
