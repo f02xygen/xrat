@@ -160,6 +160,8 @@ pub struct TlsSettings {
     pub fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alpn: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cipher_suites: Option<String>,
     #[serde(rename = "echConfigList", skip_serializing_if = "Option::is_none")]
     pub ech_config_list: Option<String>,
     #[serde(

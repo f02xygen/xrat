@@ -25,7 +25,7 @@ pub enum AppError {
     #[error(transparent)]
     Decode(#[from] xrat_support::decode::DecodeError),
 
-    #[error("HTTP request failed")]
+    #[error("HTTP request failed: {0}")]
     Http(#[from] xrat_support::http::HttpError),
 
     #[error(

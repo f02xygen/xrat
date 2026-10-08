@@ -4,6 +4,7 @@ pub(crate) async fn run_download_stage(
     node: &Node,
     settings: &ResolvedTestSettings,
     result: &mut TestResult,
+    failure_selection: &mut FailureSelection,
     print_progress: bool,
 ) -> crate::app::Result<()> {
     if print_progress {
@@ -27,6 +28,8 @@ pub(crate) async fn run_download_stage(
     result.download_mbps = download_result.mbps;
     merge_failure(
         result,
+        failure_selection,
+        FailureStage::Download,
         download_result.failure_kind,
         download_result.failure_reason,
     );
@@ -46,6 +49,7 @@ pub(crate) async fn run_upload_stage(
     node: &Node,
     settings: &ResolvedTestSettings,
     result: &mut TestResult,
+    failure_selection: &mut FailureSelection,
     print_progress: bool,
 ) -> crate::app::Result<()> {
     let Some(upload_url) = settings.upload_url.as_deref() else {
@@ -74,6 +78,8 @@ pub(crate) async fn run_upload_stage(
     result.upload_mbps = upload_result.mbps;
     merge_failure(
         result,
+        failure_selection,
+        FailureStage::Upload,
         upload_result.failure_kind,
         upload_result.failure_reason,
     );

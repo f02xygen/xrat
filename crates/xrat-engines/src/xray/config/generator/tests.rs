@@ -249,11 +249,17 @@ fn generated_runtime_config_satisfies_strict_xray_schema() {
 
 #[test]
 fn official_share_link_security_extensions_generate_runtime_fields() {
-    let node = parse_link("vless://00000000-0000-0000-0000-000000000001@example.com:443?type=ws&security=tls&sni=cdn.example.com&ech=config-list&pcs=certificate-pin&vcn=peer.example&fm=%7B%22type%22%3A%22x%22%7D")
+    let node = parse_link("vless://00000000-0000-0000-0000-000000000001@example.com:443?type=ws&security=tls&sni=cdn.example.com&cs=TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256%3ATLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256&ech=config-list&pcs=certificate-pin&vcn=peer.example&fm=%7B%22type%22%3A%22x%22%7D")
         .unwrap()
         .unwrap();
     let config = generate_probe_config(&node, 1080).unwrap();
+    let json = serde_json::to_string(&config).unwrap();
+    xrat_config::parsing::XrayConfig::from_json_strict(&json).unwrap();
     let stream = serde_json::to_value(&config.outbounds[0].stream_settings).unwrap();
+    assert_eq!(
+        stream["tlsSettings"]["cipherSuites"],
+        "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+    );
     assert_eq!(stream["tlsSettings"]["echConfigList"], "config-list");
     assert_eq!(
         stream["tlsSettings"]["pinnedPeerCertSha256"],

@@ -71,6 +71,9 @@ pub(super) fn build_stream_settings(
             allow_insecure,
             fingerprint: extensions.string("fp")?,
             alpn: alpn.filter(|parts| !parts.is_empty()),
+            cipher_suites: extensions
+                .alias_string("cipherSuites", &["cs"])?
+                .filter(|value| !value.is_empty()),
             ech_config_list: extensions.string("ech")?,
             pinned_peer_cert_sha256: extensions.string("pcs")?,
             verify_peer_cert_by_name: extensions.string("vcn")?,
@@ -328,6 +331,7 @@ fn build_hy2_stream_settings(
         allow_insecure,
         fingerprint: None,
         alpn,
+        cipher_suites: None,
         ech_config_list: ech,
         pinned_peer_cert_sha256: pin_sha256,
         verify_peer_cert_by_name: None,

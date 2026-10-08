@@ -24,9 +24,18 @@ pub(super) fn build_tls_and_transport(
     let tls = match node.tls.as_deref().unwrap_or("none") {
         "" | "none" => {
             if node.sni.is_some()
-                || ["insecure", "allowInsecure", "alpn", "fp", "pbk", "sid"]
-                    .iter()
-                    .any(|key| extensions.contains_key(*key))
+                || [
+                    "insecure",
+                    "allowInsecure",
+                    "alpn",
+                    "cs",
+                    "cipherSuites",
+                    "fp",
+                    "pbk",
+                    "sid",
+                ]
+                .iter()
+                .any(|key| extensions.contains_key(*key))
             {
                 return Err(
                     "sing-box TLS fields require security=tls or security=reality".to_string(),
@@ -48,6 +57,13 @@ pub(super) fn build_tls_and_transport(
                     return Err("link parameter \"alpn\" contains an empty protocol".to_string());
                 }
                 options["alpn"] = json!(values);
+            }
+            if let Some(cipher_suites) = take_string_alias(extensions, "cipherSuites", "cs")? {
+                let values: Vec<&str> = cipher_suites.split([':', ',']).map(str::trim).collect();
+                if values.iter().any(|value| value.is_empty()) {
+                    return Err("link parameter \"cs\" contains an empty cipher suite".to_string());
+                }
+                options["cipher_suites"] = json!(values);
             }
             if let Some(fingerprint) = take_string(extensions, "fp")? {
                 if !matches!(
@@ -149,6 +165,21 @@ pub(super) fn take_string(
         Value::Bool(value) => Ok(Some(value.to_string())),
         _ => Err(format!("link parameter {key:?} must be a scalar value")),
     }
+}
+
+fn take_string_alias(
+    extensions: &mut BTreeMap<String, Value>,
+    first: &str,
+    second: &str,
+) -> Result<Option<String>, String> {
+    let first_value = take_string(extensions, first)?;
+    let second_value = take_string(extensions, second)?;
+    if first_value.is_some() && second_value.is_some() && first_value != second_value {
+        return Err(format!(
+            "conflicting link parameters {first:?} and {second:?}"
+        ));
+    }
+    Ok(first_value.or(second_value))
 }
 
 fn take_bool_alias(

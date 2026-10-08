@@ -21,6 +21,18 @@ impl TestOutputRow {
             ran_upload,
         );
 
+        let (failure_kind, error) = if status == TestStatus::Ok {
+            (None, None)
+        } else {
+            (
+                result
+                    .failure_kind
+                    .as_ref()
+                    .map(|kind| kind.as_str().to_string()),
+                result.failure_reason.clone(),
+            )
+        };
+
         Self {
             id: config.id,
             r#ref: config.r#ref.clone(),
@@ -33,7 +45,7 @@ impl TestOutputRow {
             download_mbps: result.download_mbps,
             upload_mbps: result.upload_mbps,
             status,
-            error: result.failure_reason.clone(),
+            error,
             tcp_ms: result.tcp_ms,
             ttfb_ms: result.ttfb_ms,
             http_status: result.http_status,
@@ -49,10 +61,7 @@ impl TestOutputRow {
             icmp_ok: result.icmp_ok,
             tcp_ok: result.tcp_ok,
             real_delay_ok: result.real_delay_ok,
-            failure_kind: result
-                .failure_kind
-                .as_ref()
-                .map(|kind| kind.as_str().to_string()),
+            failure_kind,
             elapsed_secs: elapsed.as_secs_f64(),
         }
     }

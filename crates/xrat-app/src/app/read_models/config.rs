@@ -91,6 +91,9 @@ impl LatestTestSummary {
     /// never been tested.
     pub fn from_joined(row: &ConfigWithLatestTest) -> Option<Self> {
         row.test_id?;
+        let clear_icmp_failure = row.real_delay_ok == Some(true)
+            && row.icmp_ok == Some(false)
+            && row.failure_reason.as_deref() == Some("Ping failed");
         Some(Self {
             id: row.test_id,
             icmp_ok: row.icmp_ok,
@@ -104,8 +107,12 @@ impl LatestTestSummary {
             connect_ms: row.connect_ms,
             ttfb_ms: row.ttfb_ms,
             http_status: row.http_status,
-            failure_kind: row.failure_kind.clone(),
-            failure_reason: row.failure_reason.clone(),
+            failure_kind: (!clear_icmp_failure)
+                .then(|| row.failure_kind.clone())
+                .flatten(),
+            failure_reason: (!clear_icmp_failure)
+                .then(|| row.failure_reason.clone())
+                .flatten(),
             tested_at: row.tested_at.clone(),
         })
     }
