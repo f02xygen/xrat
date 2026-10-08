@@ -27,6 +27,26 @@ pub fn primary_local_ip() -> Option<String> {
     SystemLocalIpResolver.primary_ip().map(|ip| ip.to_string())
 }
 
+/// Resolve a host/port to an IP address. Used for DNS pre-resolution in TUN mode
+/// to break routing loops before tunnel creation.
+pub trait HostResolver: Send + Sync {
+    fn resolve(&self, host: &str, port: u16) -> Option<std::net::IpAddr>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SystemHostResolver;
+
+impl HostResolver for SystemHostResolver {
+    fn resolve(&self, host: &str, port: u16) -> Option<std::net::IpAddr> {
+        use std::net::ToSocketAddrs;
+        (host, port)
+            .to_socket_addrs()
+            .ok()?
+            .next()
+            .map(|addr| addr.ip())
+    }
+}
+
 /// Resolve a network interface name to a bindable address, preferring IPv4.
 /// Used to turn an inbound `listen_interface` setting into a concrete `listen`
 /// address. Returns `None` when the interface is unknown or has no address.

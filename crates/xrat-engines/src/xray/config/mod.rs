@@ -26,3 +26,4 @@ pub use parse::generate_runtime_config;
 pub use parse::generate_runtime_config_for_inbounds;
 pub use parse::generate_runtime_config_for_inbounds_with_options;
 pub use parse::generate_runtime_config_with_inbounds;
+pub use parse::{XrayTunCaptureOptions, enable_tun_capture};

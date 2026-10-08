@@ -408,10 +408,7 @@ failure and preserves unverified interfaces for manual inspection.
 
 ### DNS
 
-TUN capture does not intercept name resolution: applications query the system
-resolver, which can bypass the tunnel. Split/redirected DNS and FakeIP are not
-provided yet; a bounded DNS-interception backend is tracked separately. Traffic
-that the proxy dials by name is still resolved by the proxy side.
+In TUN mode, Xray intercepts DNS traffic (diverting destination port 53 traffic from `tun-in` to a dedicated `dns-out` outbound), routing DNS queries through configured DoH servers (defaulting to Cloudflare and Google over IP). To break bootstrapping routing loops before the tunnel starts, node endpoints and DNS provider hosts are pre-resolved into static hosts entries. Private and local network ranges (RFC 1918 / RFC 4193) are automatically routed `direct` to keep local resources accessible.
 
 ## Related
 

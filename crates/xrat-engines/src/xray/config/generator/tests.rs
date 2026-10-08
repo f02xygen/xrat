@@ -1,7 +1,7 @@
 use super::{
-    enable_stats_api, generate_probe_config, generate_probe_config_with_options,
-    generate_runtime_config, generate_runtime_config_for_inbounds,
-    generate_runtime_config_for_inbounds_with_options,
+    XrayTunCaptureOptions, enable_stats_api, enable_tun_capture, generate_probe_config,
+    generate_probe_config_with_options, generate_runtime_config,
+    generate_runtime_config_for_inbounds, generate_runtime_config_for_inbounds_with_options,
 };
 use crate::xray::config::{
     FragmentOptions, MuxOptions, XrayCompatibilityTarget, XrayDnsConfig, XrayDnsHostValue,
@@ -748,6 +748,83 @@ fn enable_stats_api_adds_api_inbound_and_objects() {
     assert_eq!(value["api"]["services"][0], "StatsService");
     assert_eq!(value["policy"]["system"]["statsInboundUplink"], true);
     assert_eq!(value["routing"]["rules"][0]["outboundTag"], "api");
+}
+
+#[test]
+fn enable_tun_capture_adds_tun_dns_and_routes() {
+    let node = vless_tls_node();
+    let mut config =
+        generate_runtime_config_for_inbounds(&node, Some(("127.0.0.1", 18200, true)), None)
+            .unwrap();
+    let gateway = vec!["172.19.0.1/30".to_string()];
+    let resolved = vec![("example.com".to_string(), "93.184.215.14".to_string())];
+    let options = XrayTunCaptureOptions {
+        interface_name: "xrat0",
+        mtu: 1500,
+        address: &gateway,
+        auto_route: true,
+        resolved_hosts: &resolved,
+    };
+    enable_tun_capture(&mut config, &options);
+
+    let tun = config
+        .inbounds
+        .iter()
+        .find(|i| i.protocol == "tun")
+        .unwrap();
+    assert_eq!(tun.tag, "tun-in");
+    let dns_out = config
+        .outbounds
+        .iter()
+        .find(|o| o.protocol == "dns")
+        .unwrap();
+    assert_eq!(dns_out.tag, "dns-out");
+
+    let routing = config.routing.as_ref().unwrap();
+    assert_eq!(routing.rules[0].outbound_tag, "dns-out");
+    assert_eq!(routing.rules[0].port, Some("53".to_string()));
+    assert_eq!(routing.rules[0].network, Some("tcp,udp".to_string()));
+    assert_eq!(
+        routing.rules[0].inbound_tag,
+        Some(vec!["tun-in".to_string()])
+    );
+
+    let direct_rule = routing
+        .rules
+        .iter()
+        .find(|r| r.outbound_tag == "direct")
+        .unwrap();
+    assert!(
+        direct_rule
+            .ip
+            .as_ref()
+            .unwrap()
+            .contains(&"10.0.0.0/8".to_string())
+    );
+    assert!(
+        direct_rule
+            .ip
+            .as_ref()
+            .unwrap()
+            .contains(&"192.168.0.0/16".to_string())
+    );
+
+    let direct_out = config.outbounds.iter().find(|o| o.tag == "direct").unwrap();
+    assert_eq!(direct_out.protocol, "freedom");
+
+    // Regression: every generated routing rule must reference an existing outbound
+    for rule in &routing.rules {
+        assert!(
+            config.outbounds.iter().any(|o| o.tag == rule.outbound_tag),
+            "routing rule outboundTag {:?} has no corresponding outbound",
+            rule.outbound_tag
+        );
+    }
+
+    let dns = config.dns.as_ref().unwrap();
+    assert!(dns.servers.iter().any(|s| s.contains("1.1.1.1")));
+    assert!(dns.servers.iter().any(|s| s.contains("8.8.8.8")));
+    assert!(dns.hosts.contains_key("example.com"));
 }
 
 #[test]

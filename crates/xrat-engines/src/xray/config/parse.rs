@@ -52,3 +52,9 @@ pub fn generate_runtime_config_for_inbounds_with_options(
 pub fn enable_stats_api(config: &mut XrayConfig, host: &str, port: u16) {
     generator::enable_stats_api(config, host, port);
 }
+
+pub use generator::XrayTunCaptureOptions;
+
+pub fn enable_tun_capture(config: &mut XrayConfig, options: &XrayTunCaptureOptions<'_>) {
+    generator::enable_tun_capture(config, options);
+}

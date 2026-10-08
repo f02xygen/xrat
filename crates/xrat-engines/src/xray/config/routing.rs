@@ -100,6 +100,8 @@ pub(super) fn field_rule(
         kind: "field".to_string(),
         domain,
         ip,
+        port: None,
+        network: None,
         inbound_tag,
         outbound_tag: outbound_tag.to_string(),
     }

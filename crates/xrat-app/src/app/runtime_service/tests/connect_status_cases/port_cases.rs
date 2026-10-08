@@ -213,6 +213,15 @@ impl TcpConnector for FakePorts {
         Ok(())
     }
 }
+struct FakeResolver;
+impl xrat_support::net::HostResolver for FakeResolver {
+    fn resolve(&self, _host: &str, _port: u16) -> Option<std::net::IpAddr> {
+        Some(std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+            198, 51, 100, 1,
+        )))
+    }
+}
+
 fn ports(fail_readiness: bool, fail_validation: bool) -> (RuntimeProcessPorts, Arc<Mutex<State>>) {
     let state = Arc::new(Mutex::new(State::default()));
     let fake = Arc::new(FakePorts {
@@ -227,6 +236,7 @@ fn ports(fail_readiness: bool, fail_validation: bool) -> (RuntimeProcessPorts, A
             signals: fake.clone(),
             connector: fake.clone(),
             tun: fake,
+            resolver: Arc::new(FakeResolver),
         },
         state,
     )

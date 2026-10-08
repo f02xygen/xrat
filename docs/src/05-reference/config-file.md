@@ -421,9 +421,9 @@ route_exclude_address = []
 > sing-box emits `type: "tun"` with `route.auto_detect_interface` and routes private/LAN
 > destinations direct. Xray TUN needs a core whose Linux TUN configures the interface and routes
 > (Xray >= 26.7.11); older cores are rejected before launch. V2Ray TUN
-> is not implemented. TUN does not intercept DNS: name lookups use the system
-> resolver and can bypass the tunnel; a bounded DNS-interception backend is
-> tracked separately.
+> is not implemented. In TUN mode, Xray intercepts DNS traffic (diverting port 53 to
+> a dedicated `dns-out` outbound via configured DoH servers) and pre-resolves node/DNS
+> domains into static hosts to prevent routing loops.
 
 ---
 

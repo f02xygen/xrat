@@ -371,6 +371,25 @@ async fn managed_xray_launch_adds_tun_inbound() {
     );
     assert!(tun.get("port").is_none());
     assert!(tun.get("listen").is_none());
+
+    let dns_out = value["outbounds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|outbound| outbound["tag"] == "dns-out")
+        .expect("dns-out outbound should be present");
+    assert_eq!(dns_out["protocol"], "dns");
+
+    let dns_rule = value["routing"]["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rule| rule["outboundTag"] == "dns-out")
+        .expect("dns routing rule should be present");
+    assert_eq!(dns_rule["port"], "53");
+    assert_eq!(dns_rule["network"], "tcp,udp");
+    assert_eq!(dns_rule["inboundTag"], serde_json::json!(["tun-in"]));
+    assert!(value["dns"]["servers"].as_array().unwrap().len() >= 2);
 }
 
 #[tokio::test]
@@ -473,6 +492,117 @@ async fn tun_rejects_v2ray_engine() {
         Err(error) => error,
     };
     assert!(error.to_string().contains("V2Ray"));
+}
+
+struct MockHostResolver {
+    ip: std::net::IpAddr,
+}
+impl xrat_support::net::HostResolver for MockHostResolver {
+    fn resolve(&self, _host: &str, _port: u16) -> Option<std::net::IpAddr> {
+        Some(self.ip)
+    }
+}
+
+struct FailingHostResolver;
+impl xrat_support::net::HostResolver for FailingHostResolver {
+    fn resolve(&self, _host: &str, _port: u16) -> Option<std::net::IpAddr> {
+        None
+    }
+}
+
+#[tokio::test]
+async fn managed_xray_launch_resolves_node_domain_and_preserves_sni() {
+    let mut context = test_context().await;
+    context.app_config.runtime.engine = "xray".to_string();
+    context.app_config.runtime.tun.enabled = true;
+    context.runtime_paths.xray_path =
+        write_fake_xray_version(&context, "Xray 26.7.28 (Xray, Penetrates Everything.)");
+    let mut node = test_node();
+    node.tls = Some("tls".to_string());
+    node.sni = None;
+    let config = imported_config(&context, node).await;
+
+    let mock_ip: std::net::IpAddr = "198.51.100.1".parse().unwrap();
+    let ports = xrat_support::readiness::RuntimeProcessPorts {
+        resolver: std::sync::Arc::new(MockHostResolver { ip: mock_ip }),
+        ..Default::default()
+    };
+    let service = RuntimeService::with_process_ports(&context, ports);
+
+    let launch = service
+        .resolve_launch(&config)
+        .expect("xray TUN launch should resolve");
+    let RuntimeLaunchConfig::Xray(config) = launch.config else {
+        panic!("expected an xray runtime config");
+    };
+    let value = serde_json::to_value(config).expect("config should serialize");
+
+    let outbound = &value["outbounds"][0];
+    assert_eq!(outbound["settings"]["vnext"][0]["address"], "198.51.100.1");
+    assert_eq!(
+        outbound["streamSettings"]["tlsSettings"]["serverName"],
+        "example.com"
+    );
+    assert_eq!(value["dns"]["hosts"]["example.com"], "198.51.100.1");
+}
+
+#[tokio::test]
+async fn managed_xray_launch_rejects_unresolvable_endpoint_for_tun() {
+    let mut context = test_context().await;
+    context.app_config.runtime.engine = "xray".to_string();
+    context.app_config.runtime.tun.enabled = true;
+    context.runtime_paths.xray_path =
+        write_fake_xray_version(&context, "Xray 26.7.28 (Xray, Penetrates Everything.)");
+    let mut node = test_node();
+    node.address = "unresolvable.example.com".to_string();
+    let config = imported_config(&context, node).await;
+
+    let ports = xrat_support::readiness::RuntimeProcessPorts {
+        resolver: std::sync::Arc::new(FailingHostResolver),
+        ..Default::default()
+    };
+    let service = RuntimeService::with_process_ports(&context, ports);
+
+    let error = match service.resolve_launch(&config) {
+        Ok(_) => panic!("unresolvable proxy endpoint must fail"),
+        Err(err) => err,
+    };
+    assert!(
+        error.to_string().contains(
+            "failed to resolve proxy endpoint \"unresolvable.example.com\" for TUN capture"
+        ),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn managed_xray_launch_rejects_unresolvable_dns_provider_for_tun() {
+    let mut context = test_context().await;
+    context.app_config.runtime.engine = "xray".to_string();
+    context.app_config.runtime.tun.enabled = true;
+    context.app_config.dns.servers = vec!["https://custom-dns.example.com/dns-query".to_string()];
+    context.runtime_paths.xray_path =
+        write_fake_xray_version(&context, "Xray 26.7.28 (Xray, Penetrates Everything.)");
+    let mut node = test_node();
+    node.address = "198.51.100.1".to_string();
+    let config = imported_config(&context, node).await;
+
+    let ports = xrat_support::readiness::RuntimeProcessPorts {
+        resolver: std::sync::Arc::new(FailingHostResolver),
+        ..Default::default()
+    };
+    let service = RuntimeService::with_process_ports(&context, ports);
+
+    let error = match service.resolve_launch(&config) {
+        Ok(_) => panic!("unresolvable DNS provider must fail"),
+        Err(err) => err,
+    };
+    assert!(
+        error.to_string().contains(
+            "failed to resolve DNS provider host \"custom-dns.example.com\" for TUN capture"
+        ),
+        "unexpected error: {error}"
+    );
 }
 
 fn runtime_session_with_status(status: RuntimeSessionStatus) -> RuntimeSessionRecord {
@@ -869,6 +999,80 @@ async fn tun_replacement_preserves_running_session_when_preflight_fails() {
 }
 
 #[tokio::test]
+async fn tun_connect_replacement_preserves_running_session_when_resolution_fails() {
+    let mut context = test_context().await;
+    context.app_config.runtime.engine = "xray".to_string();
+    context.app_config.runtime.replace_active_session = true;
+    context.app_config.runtime.tun.enabled = true;
+    context.runtime_paths.xray_path =
+        write_fake_xray_version(&context, "Xray 26.7.28 (Xray, Penetrates Everything.)");
+
+    let cfg1 = imported_config(&context, test_node()).await;
+    let mut node2 = hy2_node();
+    node2.address = "unresolvable.example.com".to_string();
+    let summary = context
+        .db
+        .import_nodes(&test_source(), &[node2])
+        .await
+        .expect("node should import");
+    assert_eq!(summary.imported_configs, 1);
+    let cfg2 = context
+        .db
+        .list_configs(&Default::default())
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|c| c.id != cfg1.id)
+        .expect("second config should exist");
+
+    let _session_id = context
+        .db
+        .insert_runtime_session(&RuntimeSessionInsert {
+            config_id: Some(cfg1.id),
+            status: RuntimeSessionStatus::Running,
+            socks_host: Some("127.0.0.1".to_string()),
+            socks_port: Some(10808),
+            http_host: None,
+            http_port: None,
+            shadowsocks_host: None,
+            shadowsocks_port: None,
+            process_id: Some(i64::from(std::process::id())),
+            failure_reason: None,
+            started_at: Some("1".to_string()),
+            stopped_at: None,
+        })
+        .await
+        .unwrap();
+    context.db.set_active_config(cfg1.id).await.unwrap();
+
+    let ports = xrat_support::readiness::RuntimeProcessPorts {
+        resolver: std::sync::Arc::new(FailingHostResolver),
+        ..Default::default()
+    };
+    let service = RuntimeService::with_process_ports(&context, ports);
+
+    let result = service.connect(ConnectRequest { config_id: cfg2.id }).await;
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().to_string().contains(
+            "failed to resolve proxy endpoint \"unresolvable.example.com\" for TUN capture"
+        )
+    );
+
+    let session = context
+        .db
+        .get_running_runtime_session()
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.status, RuntimeSessionStatus::Running);
+    assert_eq!(
+        context.db.get_active_config().await.unwrap().map(|c| c.id),
+        Some(cfg1.id)
+    );
+}
+
+#[tokio::test]
 async fn tun_cleanup_refuses_unknown_ifindex() {
     let mut context = test_context().await;
     context.app_config.runtime.tun.enabled = true;
@@ -904,4 +1108,74 @@ async fn tun_cleanup_refuses_unknown_ifindex() {
     let error = service.cleanup_stale_tun_interface().unwrap_err();
     assert!(error.to_string().contains("no verified kernel index"));
     assert!(mock_tun.deleted.lock().unwrap().is_empty());
+}
+
+#[test]
+fn tun_dns_bootstrap_parses_supported_server_formats() {
+    use crate::app::runtime_service::launch::extract_dns_server_host;
+    for server in [
+        "https://dns.google/dns-query",
+        "https+local://dns.google:8443/dns-query",
+        "tcp://dns.google:53",
+        "tcp+local://dns.google:53",
+        "quic+local://dns.google:853",
+        "h2c://dns.google/dns-query",
+        "dns.google:53",
+    ] {
+        assert_eq!(
+            extract_dns_server_host(server).unwrap().as_deref(),
+            Some("dns.google"),
+            "{server}"
+        );
+    }
+    for server in [
+        "1.1.1.1",
+        "1.1.1.1:53",
+        "2606:4700:4700::1111",
+        "::1",
+        "[2606:4700:4700::1111]:53",
+        "https://[2606:4700:4700::1111]/dns-query",
+        "https://[2606:4700:4700::1111]:8443/dns-query",
+        "tcp+local://[::1]:53",
+        "https+local://1.1.1.1/dns-query",
+        "localhost",
+        "fakedns",
+    ] {
+        assert_eq!(extract_dns_server_host(server).unwrap(), None, "{server}");
+    }
+    assert!(extract_dns_server_host("https://[invalid]/dns-query").is_err());
+}
+
+#[tokio::test]
+async fn managed_xray_launch_skips_resolution_for_dns_ip_literals_and_special_servers() {
+    let mut context = test_context().await;
+    context.app_config.runtime.engine = "xray".to_string();
+    context.app_config.runtime.tun.enabled = true;
+    context.app_config.dns.servers = [
+        "2606:4700:4700::1111",
+        "https://[2606:4700:4700::1111]:8443/dns-query",
+        "tcp+local://8.8.8.8:53",
+        "localhost",
+        "fakedns",
+    ]
+    .map(str::to_string)
+    .to_vec();
+    context.runtime_paths.xray_path =
+        write_fake_xray_version(&context, "Xray 26.7.28 (Xray, Penetrates Everything.)");
+    let mut node = test_node();
+    node.address = "198.51.100.1".to_string();
+    let config = imported_config(&context, node).await;
+    struct UnexpectedResolver;
+    impl xrat_support::net::HostResolver for UnexpectedResolver {
+        fn resolve(&self, host: &str, _: u16) -> Option<std::net::IpAddr> {
+            panic!("unexpected bootstrap resolution of {host}");
+        }
+    }
+    let ports = xrat_support::readiness::RuntimeProcessPorts {
+        resolver: std::sync::Arc::new(UnexpectedResolver),
+        ..Default::default()
+    };
+    RuntimeService::with_process_ports(&context, ports)
+        .resolve_launch(&config)
+        .expect("literal and special DNS servers must not require host resolution");
 }
