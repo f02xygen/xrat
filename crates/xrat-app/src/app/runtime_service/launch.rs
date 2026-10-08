@@ -84,20 +84,20 @@ impl<'a> RuntimeService<'a> {
                 node.address = ip.to_string();
             }
             for server in &self.context.app_config.dns.servers {
-                if let Some(host) = extract_dns_server_host(server)
+                if let Some(host) = extract_dns_server_host(server)?
                     && host.parse::<std::net::IpAddr>().is_err()
-                    && !resolved_hosts.iter().any(|(h, _)| h == host)
+                    && !resolved_hosts.iter().any(|(h, _)| h == &host)
                 {
                     let ip = self
                         .process_ports
                         .resolver
-                        .resolve(host, 443)
+                        .resolve(&host, 443)
                         .ok_or_else(|| {
                             AppError::InvalidArgument(format!(
                                 "failed to resolve DNS provider host \"{host}\" for TUN capture"
                             ))
                         })?;
-                    resolved_hosts.push((host.to_string(), ip.to_string()));
+                    resolved_hosts.push((host, ip.to_string()));
                 }
             }
         }
@@ -391,24 +391,26 @@ fn resolve_runtime_engine(
     }
 }
 
-fn extract_dns_server_host(server: &str) -> Option<&str> {
+pub(super) fn extract_dns_server_host(server: &str) -> crate::app::Result<Option<String>> {
     let server = server.trim();
-    let rest = if let Some(stripped) = server.strip_prefix("https://") {
-        stripped
-    } else if let Some(stripped) = server.strip_prefix("http://") {
-        stripped
-    } else if let Some(stripped) = server.strip_prefix("tcp://") {
-        stripped
-    } else if let Some(stripped) = server.strip_prefix("udp://") {
-        stripped
-    } else if let Some(stripped) = server.strip_prefix("tls://") {
-        stripped
-    } else if let Some(stripped) = server.strip_prefix("quic://") {
-        stripped
+    if matches!(server, "localhost" | "fakedns") || server.parse::<std::net::IpAddr>().is_ok() {
+        return Ok(None);
+    }
+    let address = if server.contains("://") {
+        server.to_string()
     } else {
-        server
+        format!("udp://{server}")
     };
-    let host_port = rest.split('/').next().unwrap_or(rest);
-    let host = host_port.split(':').next().unwrap_or(host_port);
-    if host.is_empty() { None } else { Some(host) }
+    let url = url::Url::parse(&address).map_err(|error| {
+        AppError::InvalidArgument(format!("invalid DNS server \"{server}\": {error}"))
+    })?;
+    match url.host() {
+        Some(url::Host::Domain(host)) if host.parse::<std::net::IpAddr>().is_err() => {
+            Ok(Some(host.to_string()))
+        }
+        Some(_) => Ok(None),
+        None => Err(AppError::InvalidArgument(format!(
+            "DNS server \"{server}\" has no host"
+        ))),
+    }
 }

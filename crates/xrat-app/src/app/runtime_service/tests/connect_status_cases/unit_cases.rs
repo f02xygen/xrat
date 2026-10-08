@@ -1109,3 +1109,73 @@ async fn tun_cleanup_refuses_unknown_ifindex() {
     assert!(error.to_string().contains("no verified kernel index"));
     assert!(mock_tun.deleted.lock().unwrap().is_empty());
 }
+
+#[test]
+fn tun_dns_bootstrap_parses_supported_server_formats() {
+    use crate::app::runtime_service::launch::extract_dns_server_host;
+    for server in [
+        "https://dns.google/dns-query",
+        "https+local://dns.google:8443/dns-query",
+        "tcp://dns.google:53",
+        "tcp+local://dns.google:53",
+        "quic+local://dns.google:853",
+        "h2c://dns.google/dns-query",
+        "dns.google:53",
+    ] {
+        assert_eq!(
+            extract_dns_server_host(server).unwrap().as_deref(),
+            Some("dns.google"),
+            "{server}"
+        );
+    }
+    for server in [
+        "1.1.1.1",
+        "1.1.1.1:53",
+        "2606:4700:4700::1111",
+        "::1",
+        "[2606:4700:4700::1111]:53",
+        "https://[2606:4700:4700::1111]/dns-query",
+        "https://[2606:4700:4700::1111]:8443/dns-query",
+        "tcp+local://[::1]:53",
+        "https+local://1.1.1.1/dns-query",
+        "localhost",
+        "fakedns",
+    ] {
+        assert_eq!(extract_dns_server_host(server).unwrap(), None, "{server}");
+    }
+    assert!(extract_dns_server_host("https://[invalid]/dns-query").is_err());
+}
+
+#[tokio::test]
+async fn managed_xray_launch_skips_resolution_for_dns_ip_literals_and_special_servers() {
+    let mut context = test_context().await;
+    context.app_config.runtime.engine = "xray".to_string();
+    context.app_config.runtime.tun.enabled = true;
+    context.app_config.dns.servers = [
+        "2606:4700:4700::1111",
+        "https://[2606:4700:4700::1111]:8443/dns-query",
+        "tcp+local://8.8.8.8:53",
+        "localhost",
+        "fakedns",
+    ]
+    .map(str::to_string)
+    .to_vec();
+    context.runtime_paths.xray_path =
+        write_fake_xray_version(&context, "Xray 26.7.28 (Xray, Penetrates Everything.)");
+    let mut node = test_node();
+    node.address = "198.51.100.1".to_string();
+    let config = imported_config(&context, node).await;
+    struct UnexpectedResolver;
+    impl xrat_support::net::HostResolver for UnexpectedResolver {
+        fn resolve(&self, host: &str, _: u16) -> Option<std::net::IpAddr> {
+            panic!("unexpected bootstrap resolution of {host}");
+        }
+    }
+    let ports = xrat_support::readiness::RuntimeProcessPorts {
+        resolver: std::sync::Arc::new(UnexpectedResolver),
+        ..Default::default()
+    };
+    RuntimeService::with_process_ports(&context, ports)
+        .resolve_launch(&config)
+        .expect("literal and special DNS servers must not require host resolution");
+}
