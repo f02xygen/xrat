@@ -58,8 +58,12 @@ pub fn fetch_url_with_client(
     url: &str,
     client: &dyn xrat_support::http::BlockingHttpClient,
 ) -> crate::app::Result<Vec<u8>> {
-    let response = client.get(url)?.error_for_status()?;
-    Ok(response.bytes()?.to_vec())
+    let response = client
+        .get(url)
+        .map_err(safe_input_error)?
+        .error_for_status()
+        .map_err(safe_input_error)?;
+    Ok(response.bytes().map_err(safe_input_error)?.to_vec())
 }
 
 pub async fn fetch_url_async(url: &str) -> crate::app::Result<Vec<u8>> {
@@ -70,8 +74,18 @@ pub async fn fetch_url_async_with_client(
     url: &str,
     client: &xrat_support::http::Client,
 ) -> crate::app::Result<Vec<u8>> {
-    let response = client.get(url).send().await?.error_for_status()?;
-    Ok(response.bytes().await?.to_vec())
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(safe_input_error)?
+        .error_for_status()
+        .map_err(safe_input_error)?;
+    Ok(response.bytes().await.map_err(safe_input_error)?.to_vec())
+}
+
+fn safe_input_error(error: xrat_support::http::HttpError) -> crate::app::AppError {
+    xrat_support::http::HttpError::new(error.kind, error.safe_summary()).into()
 }
 
 fn read_non_url_input(input: &str) -> crate::app::Result<(ImportSource, Vec<u8>)> {
@@ -108,6 +122,10 @@ pub fn save_json<T: Serialize>(output_path: &Path, value: &T) -> crate::app::Res
     fs::write(output_path, body)?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "source_tests.rs"]
+mod diagnostic_tests;
 
 #[cfg(test)]
 mod http_port_tests {

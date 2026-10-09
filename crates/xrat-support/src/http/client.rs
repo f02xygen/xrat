@@ -39,6 +39,38 @@ impl HttpError {
     pub fn is_request(&self) -> bool {
         self.kind == HttpErrorKind::Request
     }
+
+    pub fn safe_summary(&self) -> String {
+        match self.kind {
+            HttpErrorKind::Timeout => "request timed out".into(),
+            HttpErrorKind::Connect => {
+                let message = self.message.to_ascii_lowercase();
+                if message.contains("dns error") || message.contains("failed to lookup address") {
+                    "DNS lookup failed".into()
+                } else {
+                    "connection failed".into()
+                }
+            }
+            HttpErrorKind::Tls => "TLS handshake or certificate verification failed".into(),
+            HttpErrorKind::Auth => "proxy authentication failed".into(),
+            HttpErrorKind::Redirect => "redirect failed or exceeded the redirect limit".into(),
+            HttpErrorKind::Request => "invalid HTTP request".into(),
+            HttpErrorKind::Body => "response body could not be read".into(),
+            HttpErrorKind::Status => {
+                let status = self
+                    .message
+                    .strip_prefix("HTTP status ")
+                    .and_then(|message| message.split_whitespace().next())
+                    .and_then(|value| value.parse::<u16>().ok())
+                    .and_then(|value| StatusCode::from_u16(value).ok())
+                    .filter(|status| status.is_client_error() || status.is_server_error());
+                status
+                    .map(|status| format!("HTTP status {status}"))
+                    .unwrap_or_else(|| "unsuccessful HTTP response".into())
+            }
+            HttpErrorKind::Other => "HTTP transport failed".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
