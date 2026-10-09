@@ -39,6 +39,11 @@ pub struct XrayGenOptions {
     pub bind_address: Option<String>,
     pub routing: Option<super::routing::XrayRoutingOptions>,
     pub dns: Option<super::types::XrayDnsConfig>,
+    pub dns_routes: Vec<super::types::RoutingRule>,
+    pub singbox_dns: Option<crate::singbox::SingboxDnsConfig>,
+    pub bootstrap_resolver: Option<String>,
+    pub bootstrap_dns: Option<std::net::SocketAddr>,
+    pub bootstrap_hosts: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +77,42 @@ impl XrayGenOptions {
 pub fn apply_runtime_tuning(config: &mut XrayConfig, options: &XrayGenOptions) {
     if let Some(dns) = &options.dns {
         config.dns = Some(dns.clone());
+    }
+
+    if !options.dns_routes.is_empty() {
+        if !config
+            .outbounds
+            .iter()
+            .any(|outbound| outbound.tag == "direct")
+        {
+            config.outbounds.push(Outbound {
+                tag: "direct".into(),
+                protocol: "freedom".into(),
+                settings: json!({}),
+                stream_settings: None,
+                mux: None,
+            });
+        }
+        for outbound in &mut config.outbounds {
+            if outbound.tag == "direct" && outbound.protocol == "freedom" {
+                outbound.settings["domainStrategy"] =
+                    json!(
+                        match options.dns.as_ref().map(|dns| dns.query_strategy.as_str()) {
+                            Some("UseIPv4") => "ForceIPv4",
+                            Some("UseIPv6") => "ForceIPv6",
+                            _ => "ForceIP",
+                        }
+                    );
+            }
+        }
+        config
+            .routing
+            .get_or_insert_with(|| super::types::RoutingConfig {
+                domain_strategy: Some("AsIs".into()),
+                rules: vec![],
+            })
+            .rules
+            .splice(0..0, options.dns_routes.clone());
     }
 
     if options.is_noop() {

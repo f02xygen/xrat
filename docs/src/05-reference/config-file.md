@@ -1,5 +1,8 @@
 # Config File
 
+See [DNS Policies and FakeIP](../03-features/dns-policies.md) for named resolvers,
+bootstrap, the optional DNS listener and Xray DNS-outbound settings.
+
 Full reference for the `config.toml` file with all fields, defaults, and
 accepted values.
 
@@ -381,7 +384,7 @@ listen_interface = ""
 > Interface binding (`interface`, `mark`) and `listen_interface` are
 > Linux-focused. `interface` requires a real device name; `listen_interface`
 > must resolve to a bindable address or the runtime fails to launch. System-wide
-> TUN capture is configured under [`runtime.tun`](#runtimetun) (sing-box only).
+> TUN capture is configured under [`runtime.tun`](#runtimetun) for Xray or sing-box.
 
 ---
 
@@ -412,7 +415,7 @@ route_exclude_address = []
 | `mtu`                   | integer  | `1500`              | TUN MTU, `1280..=65535`                                                    |
 | `stack`                 | enum     | `system`            | sing-box network stack: `system`, `gvisor`, or `mixed`                     |
 | `address`               | string[] | `["172.19.0.1/30"]` | TUN interface addresses (CIDR)                                             |
-| `auto_route`            | boolean  | `true`              | Let engine install capture routes (`0.0.0.0/0` and/or `::/0` matching configured CIDRs) |
+| `auto_route`            | boolean  | `true`              | Let engine install capture routes matching the configured address families; Xray uses two `/1` prefixes per family |
 | `strict_route`          | boolean  | `false`             | Stricter sing-box routing/firewall handling; not a persistent kill switch  |
 | `route_exclude_address` | string[] | `[]`                | Destinations excluded from capture (CIDR); sing-box only, Xray rejects      |
 

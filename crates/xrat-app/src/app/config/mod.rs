@@ -5,6 +5,7 @@ use serde::Deserialize;
 mod database;
 pub mod defaults;
 mod dns;
+mod dns_policy;
 mod editor;
 mod geo;
 mod mmdb;
@@ -26,6 +27,10 @@ pub use database::{
     DatabaseBackend, DatabaseSettings, PostgresDatabaseSettings, SqliteDatabaseSettings,
 };
 pub use dns::{DnsHostValue, DnsSettings};
+pub use dns_policy::{
+    DnsAction, DnsListenerSettings, DnsNetwork, DnsOutboundRule, DnsOutboundSettings,
+    DnsPolicyRule, DnsResolverPath, DnsResolverSettings, FakeIpSettings,
+};
 pub use geo::{GeoProfile, GeoSettings};
 pub use mmdb::MmdbSettings;
 pub use parser::ParserSettings;

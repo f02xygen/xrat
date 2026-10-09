@@ -54,7 +54,9 @@ fn engine_options_are_available_without_internal_crate_imports() {
             use_system_hosts: true,
             disable_cache: false,
             disable_fallback: false,
+            disable_fallback_if_match: None,
             enable_parallel_query: false,
+            tag: None,
         }),
         routing: Some(xray::XrayRoutingOptions {
             domain_strategy: "AsIs".into(),
@@ -81,6 +83,7 @@ fn engine_options_are_available_without_internal_crate_imports() {
         final_server: "local".into(),
         strategy: None,
         disable_cache: None,
+        reverse_mapping: None,
     };
     let config = singbox::generate_singbox_runtime_config_with_dns(
         &node,

@@ -35,6 +35,95 @@ impl ProbeProcess {
         gen_options: &XrayGenOptions,
         startup_timeout: Duration,
     ) -> Result<Self, (FailureKind, String)> {
+        let mut node = node.clone();
+        if engine == ProbeEngineKind::Xray
+            && let Some(server) = gen_options.bootstrap_dns
+            && node.address.parse::<std::net::IpAddr>().is_err()
+        {
+            let original = node.address.clone();
+            let strategy = gen_options
+                .dns
+                .as_ref()
+                .map(|dns| dns.query_strategy.clone())
+                .unwrap_or_default();
+            let hostname = original.clone();
+            let addresses = tokio::task::spawn_blocking(move || {
+                xrat_support::dns::resolve_udp(
+                    &hostname,
+                    server,
+                    strategy != "UseIPv6",
+                    strategy != "UseIPv4",
+                    Duration::from_secs(2),
+                )
+            })
+            .await
+            .map_err(|_| (FailureKind::Process, "bootstrap DNS task failed".into()))?
+            .map_err(|_| {
+                (
+                    FailureKind::Process,
+                    "configured bootstrap DNS returned no usable proxy address".into(),
+                )
+            })?;
+            let address = addresses.first().ok_or_else(|| {
+                (
+                    FailureKind::Process,
+                    "bootstrap DNS returned no usable address".into(),
+                )
+            })?;
+            if matches!(node.tls.as_deref(), Some("tls" | "reality")) && node.sni.is_none() {
+                node.sni = Some(original.clone());
+            }
+            if matches!(node.network.as_str(), "ws" | "httpupgrade" | "xhttp")
+                && node.host.is_none()
+            {
+                node.host = Some(original);
+            }
+            node.address = address.to_string();
+        }
+        let mut options = gen_options.clone();
+        if engine == ProbeEngineKind::Xray
+            && let Some(server) = options.bootstrap_dns
+        {
+            for hostname in &options.bootstrap_hosts {
+                let host = hostname.clone();
+                let strategy = options
+                    .dns
+                    .as_ref()
+                    .map(|dns| dns.query_strategy.clone())
+                    .unwrap_or_default();
+                let addresses = tokio::task::spawn_blocking(move || {
+                    xrat_support::dns::resolve_udp(
+                        &host,
+                        server,
+                        strategy != "UseIPv6",
+                        strategy != "UseIPv4",
+                        Duration::from_secs(2),
+                    )
+                })
+                .await
+                .map_err(|_| (FailureKind::Process, "bootstrap DNS task failed".into()))?
+                .map_err(|_| {
+                    (
+                        FailureKind::Process,
+                        "configured bootstrap DNS returned no usable resolver address".into(),
+                    )
+                })?;
+                let address = addresses.first().ok_or_else(|| {
+                    (
+                        FailureKind::Process,
+                        "bootstrap DNS returned no usable address".into(),
+                    )
+                })?;
+                if let Some(dns) = &mut options.dns {
+                    dns.hosts.insert(
+                        hostname.clone(),
+                        xrat_engines::xray::config::XrayDnsHostValue::One(address.to_string()),
+                    );
+                }
+            }
+        }
+        let gen_options = &options;
+        let node = &node;
         match engine {
             ProbeEngineKind::Xray => {
                 let config = generate_probe_config_with_options(node, local_port, gen_options)
@@ -50,12 +139,36 @@ impl ProbeProcess {
                     .map_err(|error| classify_xray(&error))
             }
             ProbeEngineKind::Singbox => {
-                let config = generate_singbox_probe_config(node, local_port).map_err(|error| {
+                let mut config = if gen_options.singbox_dns.is_some() {
+                    xrat_engines::singbox::generate_singbox_runtime_config_with_dns(
+                        node,
+                        vec![xrat_engines::singbox::SingboxInbound::socks(
+                            "socks-in",
+                            "127.0.0.1",
+                            local_port,
+                            None,
+                        )],
+                        None,
+                        None,
+                        gen_options.singbox_dns.as_ref(),
+                    )
+                } else {
+                    generate_singbox_probe_config(node, local_port)
+                }
+                .map_err(|error| {
                     (
                         FailureKind::Process,
                         format!("Failed to generate config: {error}"),
                     )
                 })?;
+                if let Some(resolver) = &gen_options.bootstrap_resolver {
+                    if let Some(route) = &mut config.route {
+                        route.default_domain_resolver = Some(resolver.clone());
+                    }
+                    if let Some(outbound) = config.outbounds.first_mut() {
+                        outbound["domain_resolver"] = resolver.clone().into();
+                    }
+                }
                 SingboxProbeProcess::spawn_with_binary(
                     binary_path,
                     &config,

@@ -7,6 +7,7 @@ use crate::xray::config::{
     FragmentOptions, MuxOptions, XrayCompatibilityTarget, XrayDnsConfig, XrayDnsHostValue,
     XrayGenOptions, XrayRouteList, XrayRoutingOptions,
 };
+use serde_json::json;
 use std::collections::BTreeMap;
 use std::io::Write;
 use xrat_config::parse_link;
@@ -313,13 +314,15 @@ fn managed_and_probe_configs_emit_xray_dns() {
     );
     let options = XrayGenOptions {
         dns: Some(XrayDnsConfig {
-            servers: vec!["8.8.8.8".to_string()],
+            servers: vec![json!("8.8.8.8")],
             hosts,
             query_strategy: "UseIPv4".to_string(),
             use_system_hosts: true,
             disable_cache: true,
             disable_fallback: false,
+            disable_fallback_if_match: None,
             enable_parallel_query: true,
+            tag: None,
         }),
         ..Default::default()
     };
@@ -358,13 +361,15 @@ fn native_xray_validator_accepts_generated_dns_config() {
     let node = vless_tls_node();
     let options = XrayGenOptions {
         dns: Some(XrayDnsConfig {
-            servers: vec!["8.8.8.8".to_string()],
+            servers: vec![json!("8.8.8.8")],
             hosts: BTreeMap::new(),
             query_strategy: "UseIPv4".to_string(),
             use_system_hosts: true,
             disable_cache: false,
             disable_fallback: false,
+            disable_fallback_if_match: None,
             enable_parallel_query: true,
+            tag: None,
         }),
         ..Default::default()
     };
@@ -828,8 +833,16 @@ fn enable_tun_capture_adds_tun_dns_and_routes() {
     }
 
     let dns = config.dns.as_ref().unwrap();
-    assert!(dns.servers.iter().any(|s| s.contains("1.1.1.1")));
-    assert!(dns.servers.iter().any(|s| s.contains("8.8.8.8")));
+    assert!(
+        dns.servers
+            .iter()
+            .any(|s| s.as_str().is_some_and(|server| server.contains("1.1.1.1")))
+    );
+    assert!(
+        dns.servers
+            .iter()
+            .any(|s| s.as_str().is_some_and(|server| server.contains("8.8.8.8")))
+    );
     assert!(dns.hosts.contains_key("example.com"));
 }
 

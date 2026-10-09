@@ -72,10 +72,25 @@ pub(crate) fn resolve_test_settings(
         app_config.runtime.xray_compatibility,
         &xray_binary_path,
     );
-    crate::app::services::runtime_tuning::apply_xray_dns_options(
-        &mut gen_options,
+    crate::app::services::runtime_tuning::dns_validation::validate(
         &app_config.dns,
-    )?;
+        &app_config.runtime.engine,
+        app_config.runtime.tun.enabled,
+    )
+    .map_err(AppError::InvalidArgument)?;
+    if app_config.runtime.engine == "sing-box" {
+        let mut probe_dns = app_config.dns.clone();
+        probe_dns.fakeip.enabled = false;
+        gen_options.singbox_dns =
+            crate::app::services::runtime_tuning::build_singbox_dns_options(&probe_dns)?;
+        gen_options.bootstrap_resolver = (!app_config.dns.resolvers.is_empty())
+            .then(|| app_config.dns.bootstrap_resolver.clone());
+    } else {
+        crate::app::services::runtime_tuning::apply_xray_dns_options(
+            &mut gen_options,
+            &app_config.dns,
+        )?;
+    }
 
     Ok(ResolvedTestSettings {
         stage_order: app_config.testing.order.clone(),

@@ -18,20 +18,26 @@ pub struct XrayConfig {
     pub policy: Option<PolicyObject>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routing: Option<RoutingConfig>,
+    #[serde(rename = "fakedns", skip_serializing_if = "Option::is_none")]
+    pub fake_dns: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct XrayDnsConfig {
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub servers: Vec<String>,
+    pub servers: Vec<serde_json::Value>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub hosts: BTreeMap<String, XrayDnsHostValue>,
     pub query_strategy: String,
     pub use_system_hosts: bool,
     pub disable_cache: bool,
     pub disable_fallback: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_fallback_if_match: Option<bool>,
     pub enable_parallel_query: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +86,8 @@ pub struct Inbound {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub listen: Option<String>,
     pub protocol: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sniffing: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<serde_json::Value>,
 }

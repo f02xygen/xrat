@@ -395,6 +395,61 @@ pub(super) fn for_path(path: &str) -> Option<SettingHelp> {
             "Category names such as cn. Not yet supported by sing-box runtimes.",
             "geoip = [\"cn\"]",
         ),
+        "dns.final_resolver" => help(
+            "Selects the fallback named DNS resolver.",
+            "A configured resolver tag; advanced DNS requires Xray or sing-box.",
+            "final_resolver = \"remote\"",
+        ),
+        "dns.bootstrap_resolver" => help(
+            "Resolves proxy and encrypted resolver hostnames without recursive proxy DNS.",
+            "A bootstrap resolver tag with a literal-IP UDP endpoint.",
+            "bootstrap_resolver = \"bootstrap\"",
+        ),
+        "dns.listener.enabled" => help(
+            "Enables the managed UDP/TCP DNS listener without changing system DNS.",
+            "Disabled by default; configure applications explicitly.",
+            "enabled = true",
+        ),
+        "dns.listener.host" => help(
+            "Binds the managed DNS listener.",
+            "Loopback IP only.",
+            "host = \"127.0.0.1\"",
+        ),
+        "dns.listener.port" => help(
+            "Sets the managed DNS listener port.",
+            "1..65535; must not collide with proxy or statistics listeners.",
+            "port = 1053",
+        ),
+        "dns.fakeip.enabled" => help(
+            "Allocates fake DNS addresses and recovers domains through the managed proxy.",
+            "Requires named resolvers, caching, and TUN or the DNS listener. Xray requires UseIP.",
+            "enabled = false",
+        ),
+        "dns.fakeip.ipv4_range" => help(
+            "Sets the reserved IPv4 FakeIP pool.",
+            "A network CIDR within 198.18.0.0/15.",
+            "ipv4_range = \"198.18.0.0/15\"",
+        ),
+        "dns.fakeip.ipv6_range" => help(
+            "Enables an IPv6 FakeIP pool.",
+            "An IPv6 ULA network CIDR, or empty to disable.",
+            "ipv6_range = \"fc00::/64\"",
+        ),
+        "dns.fakeip.pool_size" => help(
+            "Bounds Xray's FakeIP allocation count.",
+            "Positive and within the IPv4 CIDR; sing-box requires the default 65535.",
+            "pool_size = 65535",
+        ),
+        "dns.fakeip.exclude" => help(
+            "Keeps these exact hostnames on real DNS.",
+            "Xray snapshots exclusions using bootstrap before startup; sing-box resolves them using the final resolver.",
+            "exclude = [\"excluded.example\"]",
+        ),
+        "dns.fakeip.persist" => help(
+            "Persists sing-box FakeIP mappings in a policy-specific runtime cache.",
+            "Sing-box only. Xray mappings reset on restart.",
+            "persist = false",
+        ),
         "dns.query_strategy" => help(
             "Controls which address families the generated DNS resolver requests. sing-box custom DNS requires UseIPv4 or UseIPv6.",
             "UseIP, UseIPv4, UseIPv6, or UseSystem; sing-box rejects UseIP/UseSystem when DNS is emitted.",

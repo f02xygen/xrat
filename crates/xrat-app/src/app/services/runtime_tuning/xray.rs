@@ -29,6 +29,11 @@ pub(crate) fn build_xray_gen_options(runtime: &RuntimeSettings) -> XrayGenOption
         bind_address: non_empty(&runtime.network.bind_address),
         routing: None,
         dns: None,
+        dns_routes: vec![],
+        singbox_dns: None,
+        bootstrap_resolver: None,
+        bootstrap_dns: None,
+        bootstrap_hosts: vec![],
     }
 }
 
@@ -153,7 +158,7 @@ pub(crate) fn apply_xray_dns_options(
                 "[dns].servers cannot contain an empty server".to_string(),
             ));
         }
-        servers.push(server.to_string());
+        servers.push(json!(server));
     }
 
     let hosts = dns
@@ -168,6 +173,37 @@ pub(crate) fn apply_xray_dns_options(
         })
         .collect();
 
+    if !dns.resolvers.is_empty() {
+        servers = super::dns_policy::xray_servers(dns)?;
+        options.dns_routes = super::dns_policy::resolver_routes(dns);
+        for resolver in &dns.resolvers {
+            let endpoint = super::dns_validation::endpoint(&resolver.address)
+                .map_err(AppError::InvalidArgument)?;
+            if let Some(host) = endpoint.host_str()
+                && host
+                    .trim_matches(['[', ']'])
+                    .parse::<std::net::IpAddr>()
+                    .is_err()
+                && !options
+                    .bootstrap_hosts
+                    .iter()
+                    .any(|existing| existing == host)
+            {
+                options.bootstrap_hosts.push(host.to_string());
+            }
+        }
+        let bootstrap = dns
+            .resolvers
+            .iter()
+            .find(|resolver| resolver.tag == dns.bootstrap_resolver)
+            .ok_or_else(|| {
+                AppError::InvalidArgument("[dns].bootstrap_resolver is missing".into())
+            })?;
+        options.bootstrap_dns = Some(
+            super::dns_validation::bootstrap_socket(&bootstrap.address)
+                .map_err(AppError::InvalidArgument)?,
+        );
+    }
     options.dns = Some(XrayDnsConfig {
         servers,
         hosts,
@@ -175,7 +211,9 @@ pub(crate) fn apply_xray_dns_options(
         use_system_hosts: dns.use_system_hosts,
         disable_cache: dns.disable_cache,
         disable_fallback: dns.disable_fallback,
+        disable_fallback_if_match: (!dns.resolvers.is_empty()).then_some(true),
         enable_parallel_query: dns.enable_parallel_query,
+        tag: None,
     });
     Ok(())
 }

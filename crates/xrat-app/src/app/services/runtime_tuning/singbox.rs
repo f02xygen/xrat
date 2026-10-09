@@ -6,6 +6,9 @@ pub(crate) fn build_singbox_dns_options(
     if dns == &DnsSettings::default() {
         return Ok(None);
     }
+    if !dns.resolvers.is_empty() {
+        return super::dns_singbox::build_policy(dns).map(Some);
+    }
 
     let strategy = match dns.query_strategy.as_str() {
         "UseIPv4" => "ipv4_only",
@@ -106,10 +109,11 @@ pub(crate) fn build_singbox_dns_options(
         final_server: final_server.expect("a local fallback is always added"),
         strategy: Some(strategy.to_string()),
         disable_cache: dns.disable_cache.then_some(true),
+        reverse_mapping: None,
     }))
 }
 
-fn singbox_dns_server(raw: &str, tag: &str) -> crate::app::Result<(Value, bool)> {
+pub(super) fn singbox_dns_server(raw: &str, tag: &str) -> crate::app::Result<(Value, bool)> {
     let raw = raw.trim();
     if raw.is_empty() {
         return Err(AppError::InvalidArgument(
@@ -169,6 +173,7 @@ fn singbox_dns_server(raw: &str, tag: &str) -> crate::app::Result<(Value, bool)>
         ))
     })?;
     let is_https = matches!(kind, "https" | "h3");
+    let host = host.trim_matches(['[', ']']);
     let path = url.path();
     if !is_https && !path.is_empty() && path != "/" {
         return Err(AppError::InvalidArgument(format!(
@@ -201,7 +206,7 @@ fn singbox_dns_server(raw: &str, tag: &str) -> crate::app::Result<(Value, bool)>
     Ok((value, needs_resolver))
 }
 
-fn singbox_exact_host(host: &str) -> crate::app::Result<String> {
+pub(super) fn singbox_exact_host(host: &str) -> crate::app::Result<String> {
     if let Some(host) = host.strip_prefix("full:") {
         if host.is_empty() {
             return Err(AppError::InvalidArgument(
@@ -225,7 +230,7 @@ fn singbox_exact_host(host: &str) -> crate::app::Result<String> {
     Ok(host.to_string())
 }
 
-fn singbox_host_value(value: &DnsHostValue) -> crate::app::Result<Value> {
+pub(super) fn singbox_host_value(value: &DnsHostValue) -> crate::app::Result<Value> {
     let values = match value {
         DnsHostValue::One(value) => vec![value],
         DnsHostValue::Many(values) => values.iter().collect(),

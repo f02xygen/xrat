@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 use std::net::SocketAddr;
+mod bootstrap;
+pub use bootstrap::resolve_udp;
 
 #[allow(
     clippy::double_must_use,

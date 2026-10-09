@@ -1,8 +1,16 @@
+mod dns_policy;
+mod dns_singbox;
+pub(crate) mod dns_validation;
 mod network;
+pub(crate) use dns_policy::apply_xray_runtime as apply_xray_dns_runtime;
+pub(crate) use dns_singbox::apply_runtime as apply_singbox_dns_runtime;
 mod prelude;
 mod singbox;
+pub(crate) mod tun_validation;
 mod xray;
 
+#[cfg(test)]
+mod dns_tests;
 #[cfg(test)]
 mod tests;
 

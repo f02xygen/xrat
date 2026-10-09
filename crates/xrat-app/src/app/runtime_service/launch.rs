@@ -6,6 +6,27 @@ impl<'a> RuntimeService<'a> {
         config: &ConfigRecord,
     ) -> crate::app::Result<ResolvedLaunch> {
         let runtime = &self.context.app_config.runtime;
+        crate::app::services::runtime_tuning::tun_validation::validate(
+            &runtime.tun,
+            &runtime.engine,
+        )
+        .map_err(AppError::InvalidArgument)?;
+        crate::app::services::runtime_tuning::dns_validation::validate_tun_ranges(
+            &self.context.app_config.dns,
+            &runtime.tun,
+        )
+        .map_err(AppError::InvalidArgument)?;
+        crate::app::services::runtime_tuning::dns_validation::validate(
+            &self.context.app_config.dns,
+            &runtime.engine,
+            runtime.tun.enabled,
+        )
+        .map_err(AppError::InvalidArgument)?;
+        crate::app::services::runtime_tuning::dns_validation::validate_listener_ports(
+            &self.context.app_config.dns,
+            runtime,
+        )
+        .map_err(AppError::InvalidArgument)?;
         // When listen_interface is set, all managed inbounds bind to that
         // interface's address instead of their configured host.
         let listen_addr = resolve_listen_interface_addr(runtime)?;
@@ -63,17 +84,20 @@ impl<'a> RuntimeService<'a> {
         }
 
         let mut resolved_hosts = Vec::new();
-        if runtime.tun.enabled {
+        if runtime.tun.enabled || !self.context.app_config.dns.resolvers.is_empty() {
             if node.address.parse::<std::net::IpAddr>().is_err() {
                 if (node.tls.as_deref() == Some("tls") || node.tls.as_deref() == Some("reality"))
                     && node.sni.is_none()
                 {
                     node.sni = Some(node.address.clone());
                 }
+                if matches!(node.network.as_str(), "ws" | "httpupgrade" | "xhttp")
+                    && node.host.is_none()
+                {
+                    node.host = Some(node.address.clone());
+                }
                 let ip = self
-                    .process_ports
-                    .resolver
-                    .resolve(&node.address, node.port)
+                    .resolve_bootstrap_host(&node.address, node.port)?
                     .ok_or_else(|| {
                         AppError::InvalidArgument(format!(
                             "failed to resolve proxy endpoint \"{}\" for TUN capture",
@@ -88,16 +112,54 @@ impl<'a> RuntimeService<'a> {
                     && host.parse::<std::net::IpAddr>().is_err()
                     && !resolved_hosts.iter().any(|(h, _)| h == &host)
                 {
-                    let ip = self
-                        .process_ports
-                        .resolver
-                        .resolve(&host, 443)
-                        .ok_or_else(|| {
-                            AppError::InvalidArgument(format!(
-                                "failed to resolve DNS provider host \"{host}\" for TUN capture"
-                            ))
-                        })?;
+                    let ip = self.resolve_bootstrap_host(&host, 443)?.ok_or_else(|| {
+                        AppError::InvalidArgument(format!(
+                            "failed to resolve DNS provider host \"{host}\" for TUN capture"
+                        ))
+                    })?;
                     resolved_hosts.push((host, ip.to_string()));
+                }
+            }
+            for resolver in &self.context.app_config.dns.resolvers {
+                let url = crate::app::services::runtime_tuning::dns_validation::endpoint(
+                    &resolver.address,
+                )
+                .map_err(AppError::InvalidArgument)?;
+                if let Some(host) = url.host_str()
+                    && host
+                        .trim_matches(['[', ']'])
+                        .parse::<std::net::IpAddr>()
+                        .is_err()
+                {
+                    let ip = self
+                        .resolve_bootstrap_host(host, url.port().unwrap_or(53))?
+                        .ok_or_else(|| {
+                            AppError::InvalidArgument(
+                                "[dns.resolvers] encrypted/hostname resolver bootstrap failed"
+                                    .into(),
+                            )
+                        })?;
+                    resolved_hosts.push((host.to_string(), ip.to_string()));
+                }
+            }
+            if self.context.app_config.dns.fakeip.enabled {
+                for host in &self.context.app_config.dns.fakeip.exclude {
+                    if self.context.app_config.dns.hosts.contains_key(host)
+                        || self
+                            .context
+                            .app_config
+                            .dns
+                            .hosts
+                            .contains_key(&format!("full:{host}"))
+                    {
+                        continue;
+                    }
+                    let ip = self.resolve_bootstrap_host(host, 53)?.ok_or_else(|| {
+                        AppError::InvalidArgument(
+                            "[dns.fakeip].exclude hostname bootstrap failed".into(),
+                        )
+                    })?;
+                    resolved_hosts.push((host.clone(), ip.to_string()));
                 }
             }
         }
@@ -112,12 +174,23 @@ impl<'a> RuntimeService<'a> {
                 &binary_path,
                 self.process_ports.spawner.clone(),
             )?;
-            if !runtime.tun.route_exclude_address.is_empty() {
-                return Err(AppError::InvalidArgument(
+        } else if (self.context.app_config.dns.outbound.is_some()
+            || self.context.app_config.dns.fakeip.enabled)
+            && crate::app::services::runtime_tuning::xray_binary_version_with_spawner(
+                &binary_path,
+                self.process_ports.spawner.clone(),
+            )
+            .is_none_or(|version| version < (26, 7, 11))
+        {
+            return Err(AppError::InvalidArgument(
+                "[dns.outbound]/[dns.fakeip] requires a known Xray version >= 26.7.11; upgrade the configured core before enabling this DNS policy".into(),
+            ));
+        }
+        if runtime.tun.enabled && !runtime.tun.route_exclude_address.is_empty() {
+            return Err(AppError::InvalidArgument(
                     "[runtime.tun].route_exclude_address is not supported by the Xray engine; only sing-box can exclude destinations from TUN capture"
                         .to_string(),
                 ));
-            }
         }
         let mut gen_options = build_xray_gen_options(runtime);
         gen_options.compatibility =
@@ -127,6 +200,14 @@ impl<'a> RuntimeService<'a> {
                 self.process_ports.spawner.clone(),
             );
         apply_xray_dns_options(&mut gen_options, &self.context.app_config.dns)?;
+        if let Some(dns) = &mut gen_options.dns {
+            for (host, ip) in &resolved_hosts {
+                dns.hosts.insert(
+                    host.clone(),
+                    xrat_engines::xray::XrayDnsHostValue::One(ip.clone()),
+                );
+            }
+        }
         apply_xray_routing_options(&mut gen_options, &self.context.app_config.routing);
         if gen_options.bind_address.is_some() {
             tracing::warn!(
@@ -138,6 +219,7 @@ impl<'a> RuntimeService<'a> {
                 .map_err(AppError::InvalidArgument)?;
         if let Some((host, port, method, password, network)) = &shadowsocks {
             xray_config.inbounds.push(Inbound {
+                sniffing: None,
                 tag: "shadowsocks-in".to_string(),
                 port: Some(*port),
                 listen: Some((*host).to_string()),
@@ -160,6 +242,12 @@ impl<'a> RuntimeService<'a> {
             };
             enable_tun_capture(&mut xray_config, &tun_options);
         }
+
+        crate::app::services::runtime_tuning::apply_xray_dns_runtime(
+            &mut xray_config,
+            &self.context.app_config.dns,
+            runtime.tun.enabled,
+        )?;
 
         if runtime.stats.enabled {
             enable_stats_api(&mut xray_config, &runtime.stats.host, runtime.stats.port);
@@ -201,6 +289,31 @@ impl<'a> RuntimeService<'a> {
         })
     }
 
+    fn resolve_bootstrap_host(
+        &self,
+        host: &str,
+        port: u16,
+    ) -> crate::app::Result<Option<std::net::IpAddr>> {
+        let dns = &self.context.app_config.dns;
+        if dns.resolvers.is_empty() {
+            return Ok(self.process_ports.resolver.resolve(host, port));
+        }
+        let resolver = dns
+            .resolvers
+            .iter()
+            .find(|resolver| resolver.tag == dns.bootstrap_resolver)
+            .ok_or_else(|| {
+                AppError::InvalidArgument("[dns].bootstrap_resolver is missing".into())
+            })?;
+        let server = crate::app::services::runtime_tuning::dns_validation::bootstrap_socket(
+            &resolver.address,
+        )
+        .map_err(AppError::InvalidArgument)?;
+        let addresses = xrat_support::dns::resolve_udp(host, server, dns.query_strategy != "UseIPv6", dns.query_strategy != "UseIPv4", std::time::Duration::from_secs(2))
+            .map_err(|_| AppError::InvalidArgument("[dns].bootstrap_resolver did not return a usable address; bootstrap failed before replacing any current connection".into()))?;
+        Ok(addresses.into_iter().next())
+    }
+
     fn resolve_singbox_launch(
         &self,
         node: &xrat_model::Node,
@@ -208,6 +321,26 @@ impl<'a> RuntimeService<'a> {
         http: Option<(&str, u16)>,
         shadowsocks: Option<(&str, u16, &str, String, &str)>,
     ) -> crate::app::Result<ResolvedLaunch> {
+        let dns = &self.context.app_config.dns;
+        if !dns.resolvers.is_empty() {
+            if node.address.parse::<std::net::IpAddr>().is_err() {
+                self.resolve_bootstrap_host(&node.address, node.port)?;
+            }
+            for resolver in &dns.resolvers {
+                let endpoint = crate::app::services::runtime_tuning::dns_validation::endpoint(
+                    &resolver.address,
+                )
+                .map_err(AppError::InvalidArgument)?;
+                if let Some(host) = endpoint.host_str()
+                    && host
+                        .trim_matches(['[', ']'])
+                        .parse::<std::net::IpAddr>()
+                        .is_err()
+                {
+                    self.resolve_bootstrap_host(host, endpoint.port().unwrap_or(53))?;
+                }
+            }
+        }
         let mut inbounds = Vec::new();
         if let Some((host, port, udp)) = socks {
             if !udp {
@@ -308,6 +441,12 @@ impl<'a> RuntimeService<'a> {
         if tun.enabled {
             config.enable_tun_route();
         }
+        crate::app::services::runtime_tuning::apply_singbox_dns_runtime(
+            &mut config,
+            &self.context.app_config.dns,
+            tun.enabled,
+            &self.context.runtime_paths.runtime_dir,
+        )?;
         let (ready_host, ready_port) = if let Some((host, port, _)) = socks {
             (connect_host_for_bind_host(host), port)
         } else if let Some((host, port)) = http {

@@ -6,6 +6,42 @@ pub(crate) fn validate_config(config: &AppConfig, errors: &mut Vec<Diagnostic>) 
     validate_database(config, errors);
     validate_testing(&config.testing, errors);
     validate_server(config, errors);
+    if let Err(error) =
+        crate::app::services::runtime_tuning::dns_validation::validate_listener_ports(
+            &config.dns,
+            &config.runtime,
+        )
+    {
+        errors.push(Diagnostic::new(
+            "[dns.listener].port",
+            error,
+            "Managed listeners need separate ports.",
+            "choose an unused DNS listener port.",
+        ));
+    }
+    if let Err(error) = crate::app::services::runtime_tuning::dns_validation::validate_tun_ranges(
+        &config.dns,
+        &config.runtime.tun,
+    ) {
+        errors.push(Diagnostic::new(
+            "[dns.fakeip]",
+            error,
+            "FakeIP ranges must be captured without interface conflicts.",
+            "choose a separate reserved FakeIP pool.",
+        ));
+    }
+    if let Err(error) = crate::app::services::runtime_tuning::dns_validation::validate(
+        &config.dns,
+        &config.runtime.engine,
+        config.runtime.tun.enabled,
+    ) {
+        errors.push(Diagnostic::new(
+            "[dns]",
+            error,
+            "DNS policy must match engine capabilities.",
+            "correct the named DNS settings before connecting.",
+        ));
+    }
 }
 
 pub(crate) fn validate_routing(routing: &RoutingSettings, errors: &mut Vec<Diagnostic>) {
@@ -307,6 +343,27 @@ pub(crate) fn validate_tun(
             "interface_name is empty",
             "the TUN interface needs a name to create and clean up.",
             "set a name such as xrat0.",
+        ));
+    }
+    if tun.interface_name.len() > 15
+        || tun
+            .interface_name
+            .chars()
+            .any(|value| value.is_whitespace() || matches!(value, '/' | '\0'))
+    {
+        errors.push(Diagnostic::new(
+            "[runtime.tun].interface_name",
+            "invalid Linux interface name",
+            "interface names require 1..15 bytes without whitespace, slash or NUL.",
+            "choose a name such as xrat0.",
+        ));
+    }
+    if engine == "xray" && (tun.stack != "system" || tun.strict_route) {
+        errors.push(Diagnostic::new(
+            "[runtime.tun]",
+            "Xray cannot apply stack selection or strict_route",
+            "these options are sing-box-only; Xray uses its fixed native stack.",
+            "leave stack at system and strict_route false, or use sing-box.",
         ));
     }
     if !(1280..=65535).contains(&tun.mtu) {

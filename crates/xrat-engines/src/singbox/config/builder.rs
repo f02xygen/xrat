@@ -24,6 +24,8 @@ pub struct SingboxDnsConfig {
     pub strategy: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_cache: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reverse_mapping: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -43,6 +45,13 @@ pub struct SingboxRouteList {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SingboxInbound {
+    Direct {
+        tag: String,
+        listen: String,
+        listen_port: u16,
+        override_address: String,
+        override_port: u16,
+    },
     Socks {
         tag: String,
         listen: String,
@@ -239,6 +248,10 @@ pub struct SingboxExperimental {
 pub struct SingboxCacheFile {
     pub enabled: bool,
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub store_fakeip: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -372,6 +385,8 @@ impl SingboxConfig {
         experimental.cache_file = Some(SingboxCacheFile {
             enabled: true,
             path,
+            store_fakeip: None,
+            cache_id: None,
         });
     }
 
