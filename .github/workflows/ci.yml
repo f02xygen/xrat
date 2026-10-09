@@ -29,13 +29,15 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: python3 scripts/set-version.py --check
-      - run: python3 -m unittest discover -s scripts/tests -q
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - run: just version-check
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test -q --locked --workspace
       - name: Verify SDK public features and standalone consumer
-        run: python3 scripts/check-sdk.py
+        run: just sdk-check
 
   macos-check:
     name: Check macOS (${{ matrix.target }})
@@ -72,3 +74,44 @@ jobs:
           echo "XRAT_SDK_SINGBOX_BINARY=$RUNNER_TEMP/sdk-engines/sing-box-1.13.21-linux-amd64/sing-box" >> "$GITHUB_ENV"
       - name: Validate SDK JSON and probe cleanup
         run: cargo test --locked -p xrat-sdk --test native -- --ignored
+
+  runtime-network:
+    name: Managed runtime network acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - name: Install checksum-pinned runtime engines
+        run: just runtime-engines "$RUNNER_TEMP/runtime-engines"
+      - name: Validate generated DNS configurations
+        env:
+          XRAT_RUNTIME_XRAY: ${{ runner.temp }}/runtime-engines/xray
+          XRAT_RUNTIME_SINGBOX: ${{ runner.temp }}/runtime-engines/sing-box
+          XRAT_RUNTIME_FIXTURE_DIR: ${{ runner.temp }}/runtime-native
+        run: cargo test --locked -p xrat-app dns_runtime_native_fixtures -- --ignored
+      - name: Build managed runtime CLI and integration tests
+        run: |
+          set -euo pipefail
+          cargo build --locked -p xrat
+          cargo test --locked -p xrat --test runtime_network --no-run --message-format=json | jq -r 'select(.reason == "compiler-artifact" and .target.name == "runtime_network" and .executable != null) | "XRAT_RUNTIME_TEST_BINARY=" + .executable' >> "$GITHUB_ENV"
+      - name: Exercise isolated DNS traffic
+        run: sudo env XRAT_RUNTIME_XRAY="$RUNNER_TEMP/runtime-engines/xray" XRAT_RUNTIME_SINGBOX="$RUNNER_TEMP/runtime-engines/sing-box" XRAT_RUNTIME_FIXTURE_DIR="$RUNNER_TEMP/runtime-native" "$XRAT_RUNTIME_TEST_BINARY" --ignored --exact dns_network --nocapture
+      - name: Exercise isolated managed TUN capture and cleanup
+        run: sudo env XRAT_RUNTIME_CLI="$PWD/target/debug/xrat" XRAT_RUNTIME_XRAY="$RUNNER_TEMP/runtime-engines/xray" XRAT_RUNTIME_SINGBOX="$RUNNER_TEMP/runtime-engines/sing-box" XRAT_RUNTIME_OUTPUT="$RUNNER_TEMP/runtime-tun" "$XRAT_RUNTIME_TEST_BINARY" --ignored --exact tun_network --nocapture
+      - name: Exercise newer Xray managed capture and cleanup
+        run: sudo env XRAT_RUNTIME_CLI="$PWD/target/debug/xrat" XRAT_RUNTIME_XRAY="$RUNNER_TEMP/runtime-engines/xray-new" XRAT_RUNTIME_SINGBOX="$RUNNER_TEMP/runtime-engines/sing-box" XRAT_RUNTIME_OUTPUT="$RUNNER_TEMP/runtime-tun-new" "$XRAT_RUNTIME_TEST_BINARY" --ignored --exact tun_network --nocapture
+      - name: Upload native and network receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-network-receipts
+          path: |
+            ${{ runner.temp }}/runtime-native
+            ${{ runner.temp }}/runtime-tun
+            ${{ runner.temp }}/runtime-tun-new
+            ${{ runner.temp }}/runtime-engines/engine-receipts.json

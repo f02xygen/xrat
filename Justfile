@@ -28,13 +28,16 @@ check:
 
 # Update all workspace versions and refresh the lockfile
 set-version version:
-    python3 scripts/set-version.py {{quote(version)}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version={{quote(version)}}
+    [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || { echo 'invalid version' >&2; exit 1; }
+    XRAT_RELEASE_VERSION="$version" perl -0pi -e 's/(\[workspace.package\]\s*\nversion\s*=\s*")[^"]+/$1$ENV{XRAT_RELEASE_VERSION}/; s/(^\s*[\w-]+\s*=\s*\{[^\n]*path\s*=[^\n]*version\s*=\s*")[^"]+/$1$ENV{XRAT_RELEASE_VERSION}/mg' Cargo.toml
     cargo update --workspace --offline
 
 # Check workspace version consistency and release tooling
 version-check:
-    python3 scripts/set-version.py --check
-    python3 -m unittest discover -s scripts/tests -q
+    cargo test --locked -p xrat --test release_tooling
 
 # Build in release mode
 release:
@@ -50,15 +53,70 @@ test:
 
 # Verify public SDK features, docs, dependency boundaries and standalone usage
 sdk-check:
-    python3 scripts/check-sdk.py
+    cargo test --locked -p xrat-sdk
+    cargo test --locked -p xrat-sdk --all-targets --features services
+    cargo clippy --locked -p xrat-sdk --all-targets --all-features -- -D warnings
+    RUSTDOCFLAGS="-D warnings" cargo doc --locked -p xrat-sdk --all-features --no-deps
+    cargo test --locked -p xrat --test sdk_boundary
+    cargo test --locked -p xrat --test sdk_boundary standalone_consumer -- --ignored --exact --nocapture
 
 # Run representative pinned engine validation and local probe lifecycle tests
 sdk-native xray_binary singbox_binary:
     XRAT_SDK_XRAY_BINARY={{quote(xray_binary)}} XRAT_SDK_SINGBOX_BINARY={{quote(singbox_binary)}} cargo test --locked -p xrat-sdk --test native -- --ignored
 
+# Download checksum-pinned Linux amd64 test engines
+runtime-engines directory:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    directory={{quote(directory)}}
+    mkdir -p "$directory"
+    receipts="$directory/engine-receipts.json"
+    printf '[\n' > "$receipts"
+    separator=''
+    while read -r name version checksum url member; do
+        archive="$directory/$version-${url##*/}"
+        if [[ ! -f "$archive" ]]; then
+            curl -fL --retry 3 "$url" -o "$archive.download"
+            mv "$archive.download" "$archive"
+        fi
+        if command -v sha256sum >/dev/null; then
+            actual=$(sha256sum "$archive")
+        else
+            actual=$(shasum -a 256 "$archive")
+        fi
+        [[ "${actual%% *}" == "$checksum" ]] || { echo "$name: archive checksum mismatch" >&2; exit 1; }
+        if [[ "$archive" == *.zip ]]; then
+            unzip -p "$archive" "$member" > "$directory/$name.extract"
+        else
+            tar -xOf "$archive" "$member" > "$directory/$name.extract"
+        fi
+        chmod 755 "$directory/$name.extract"
+        mv "$directory/$name.extract" "$directory/$name"
+        printf '%s{"engine":"%s","version":"%s","sha256":"%s","url":"%s","member":"%s"}' "$separator" "$name" "$version" "$checksum" "$url" "$member" >> "$receipts"
+        separator=$',\n'
+    done <<'ENGINES'
+    xray 26.7.11 aa11c3685c71da0ffc71e511db50404609e7e963bb914b048f59a6a00af8930e https://github.com/XTLS/Xray-core/releases/download/v26.7.11/Xray-linux-64.zip xray
+    xray-old 26.3.27 23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip xray
+    xray-new 26.9.30 f851110beaff16e78d643f0ccfd9524b4a44dfd59bae3e34bb52bba378f7690e https://github.com/XTLS/Xray-core/releases/download/v26.9.30/Xray-linux-64.zip xray
+    sing-box 1.13.21 24f9ef8e7234e13e71e74c3598a4164c5fe07b7b67ccc6e96cf68b54789f72cd https://github.com/SagerNet/sing-box/releases/download/v1.13.21/sing-box-1.13.21-linux-amd64.tar.gz sing-box-1.13.21-linux-amd64/sing-box
+    ENGINES
+    printf '\n]\n' >> "$receipts"
+
+# Validate generated managed DNS fixtures with pinned native cores
+runtime-native xray_binary singbox_binary output:
+    XRAT_RUNTIME_XRAY={{quote(xray_binary)}} XRAT_RUNTIME_SINGBOX={{quote(singbox_binary)}} XRAT_RUNTIME_FIXTURE_DIR={{quote(output)}} cargo test --locked -p xrat-app dns_runtime_native_fixtures -- --ignored
+
+# Exercise real resolver paths and FakeIP in a disposable namespace
+runtime-dns xray_binary singbox_binary fixtures:
+    XRAT_RUNTIME_XRAY={{quote(xray_binary)}} XRAT_RUNTIME_SINGBOX={{quote(singbox_binary)}} XRAT_RUNTIME_FIXTURE_DIR={{quote(fixtures)}} cargo test --locked -p xrat --test runtime_network dns_network -- --ignored --exact --nocapture
+
+# Exercise managed CLI/daemon capture and cleanup in disposable namespaces
+runtime-tun xrat_binary xray_binary singbox_binary output:
+    XRAT_RUNTIME_CLI={{quote(xrat_binary)}} XRAT_RUNTIME_XRAY={{quote(xray_binary)}} XRAT_RUNTIME_SINGBOX={{quote(singbox_binary)}} XRAT_RUNTIME_OUTPUT={{quote(output)}} cargo test --locked -p xrat --test runtime_network tun_network -- --ignored --exact --nocapture
+
 # Verify normal crates.io installation after publication
 sdk-registry version:
-    python3 scripts/check-sdk.py --registry {{quote(version)}}
+    XRAT_SDK_REGISTRY_VERSION={{quote(version)}} cargo test --locked -p xrat --test sdk_boundary standalone_consumer -- --ignored --exact --nocapture
 
 # Generate a terminal coverage summary
 coverage:
