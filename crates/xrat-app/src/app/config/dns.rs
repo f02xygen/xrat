@@ -15,6 +15,13 @@ pub struct DnsSettings {
     pub disable_cache: bool,
     pub disable_fallback: bool,
     pub enable_parallel_query: bool,
+    pub resolvers: Vec<super::DnsResolverSettings>,
+    pub rules: Vec<super::DnsPolicyRule>,
+    pub final_resolver: String,
+    pub bootstrap_resolver: String,
+    pub listener: super::DnsListenerSettings,
+    pub fakeip: super::FakeIpSettings,
+    pub outbound: Option<super::DnsOutboundSettings>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -34,6 +41,13 @@ impl Default for DnsSettings {
             disable_cache: defaults::DEFAULT_DNS_DISABLE_CACHE,
             disable_fallback: defaults::DEFAULT_DNS_DISABLE_FALLBACK,
             enable_parallel_query: defaults::DEFAULT_DNS_ENABLE_PARALLEL_QUERY,
+            resolvers: Vec::new(),
+            rules: Vec::new(),
+            final_resolver: String::new(),
+            bootstrap_resolver: String::new(),
+            listener: super::DnsListenerSettings::default(),
+            fakeip: super::FakeIpSettings::default(),
+            outbound: None,
         }
     }
 }

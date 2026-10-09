@@ -367,7 +367,7 @@ async fn managed_xray_launch_adds_tun_inbound() {
     assert_eq!(tun["settings"]["name"], "xrat0");
     assert_eq!(
         tun["settings"]["autoSystemRoutingTable"],
-        serde_json::json!(["0.0.0.0/0"])
+        serde_json::json!(["0.0.0.0/1", "128.0.0.0/1"])
     );
     assert!(tun.get("port").is_none());
     assert!(tun.get("listen").is_none());
@@ -418,7 +418,7 @@ async fn managed_xray_launch_adds_tun_ipv6_routes() {
         .expect("tun inbound should be present");
     assert_eq!(
         tun["settings"]["autoSystemRoutingTable"],
-        serde_json::json!(["::/0"])
+        serde_json::json!(["::/1", "8000::/1"])
     );
 }
 
@@ -449,7 +449,7 @@ async fn managed_xray_launch_adds_tun_dual_stack_routes() {
         .expect("tun inbound should be present");
     assert_eq!(
         tun["settings"]["autoSystemRoutingTable"],
-        serde_json::json!(["0.0.0.0/0", "::/0"])
+        serde_json::json!(["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"])
     );
 }
 
@@ -825,6 +825,7 @@ async fn tun_cleanup_refuses_ifindex_mismatch() {
             ifindex: Some(42),
             session_id: 1,
             engine: "xray".to_string(),
+            policy_rules: vec![],
         },
     )
     .unwrap();
@@ -867,6 +868,7 @@ async fn tun_cleanup_removes_verified_stale_xrat_tun_interface() {
             ifindex: Some(42),
             session_id: 1,
             engine: "xray".to_string(),
+            policy_rules: vec![],
         },
     )
     .unwrap();
@@ -1085,6 +1087,7 @@ async fn tun_cleanup_refuses_unknown_ifindex() {
             ifindex: None,
             session_id: 1,
             engine: "xray".to_string(),
+            policy_rules: vec![],
         },
     )
     .unwrap();

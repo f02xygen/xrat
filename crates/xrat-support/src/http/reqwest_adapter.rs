@@ -95,6 +95,7 @@ pub(super) fn validate_proxy(value: &str) -> Result<(), HttpError> {
     reqwest::Proxy::all(value).map(|_| ()).map_err(adapt_error)
 }
 fn adapt_error(error: reqwest::Error) -> HttpError {
+    let error = error.without_url();
     let mut message = error.to_string();
     let mut source = std::error::Error::source(&error);
     while let Some(cause) = source {
@@ -107,7 +108,11 @@ fn adapt_error(error: reqwest::Error) -> HttpError {
     }
     let kind = if error.is_timeout() {
         HttpErrorKind::Timeout
-    } else if message.to_lowercase().contains("tls") {
+    } else if error.is_connect()
+        && ["tls", "ssl", "certificate"]
+            .iter()
+            .any(|reason| message.to_ascii_lowercase().contains(reason))
+    {
         HttpErrorKind::Tls
     } else if message.contains("407") {
         HttpErrorKind::Auth
@@ -135,5 +140,24 @@ mod tests {
         let source = std::error::Error::source(&error).unwrap().to_string();
         let adapted = adapt_error(error);
         assert!(adapted.message.contains(&source));
+    }
+
+    #[tokio::test]
+    async fn subscription_url_tokens_do_not_change_transport_classification() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let error = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(format!("http://{address}/tls-private-token?key=407"))
+            .send()
+            .await
+            .unwrap_err();
+        let adapted = adapt_error(error);
+        assert_eq!(adapted.kind, HttpErrorKind::Connect);
+        assert!(!adapted.message.contains("private-token"));
+        assert!(!adapted.message.contains("407"));
     }
 }

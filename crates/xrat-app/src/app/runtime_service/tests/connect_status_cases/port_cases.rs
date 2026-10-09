@@ -146,6 +146,30 @@ impl ProcessSpawner for FakePorts {
     }
 }
 impl xrat_support::net::TunInterfaceOps for FakePorts {
+    fn policy_rules(&self) -> io::Result<Vec<xrat_support::net::KernelPolicyRule>> {
+        if self.state.lock().unwrap().tun_interface.is_none() {
+            return Ok(vec![]);
+        }
+        Ok([2, 10]
+            .into_iter()
+            .map(|family| xrat_support::net::KernelPolicyRule {
+                family,
+                destination_prefix: 0,
+                source_prefix: 0,
+                tos: 0,
+                table: 0,
+                action: 3,
+                flags: 0,
+                attributes: vec![xrat_support::net::KernelRuleAttribute {
+                    kind: 6,
+                    value: 9010u32.to_ne_bytes().to_vec(),
+                }],
+            })
+            .collect())
+    }
+    fn delete_policy_rule(&self, _rule: &xrat_support::net::KernelPolicyRule) -> io::Result<()> {
+        Ok(())
+    }
     fn inspect_interface(
         &self,
         name: &str,
@@ -479,6 +503,28 @@ async fn tun_handoffs_refuse_changed_interface_identity_before_stopping_runtime(
             context.db.get_active_config().await.unwrap().unwrap().id,
             original.id
         );
+        assert!(
+            service
+                .disconnect()
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("does not match previously recorded interface index")
+        );
+        assert_eq!(state.lock().unwrap().deleted_interfaces, 0);
+        assert!(
+            crate::app::runtime_service::tun_ownership::load_ownership(
+                &context.runtime_paths.runtime_dir
+            )
+            .is_some()
+        );
+        state
+            .lock()
+            .unwrap()
+            .tun_interface
+            .as_mut()
+            .unwrap()
+            .ifindex = 42;
         service.disconnect().await.unwrap();
     }
 }

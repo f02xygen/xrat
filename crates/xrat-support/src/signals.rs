@@ -54,6 +54,13 @@ impl ProcessSignals for SystemProcessSignals {
         }
         #[cfg(unix)]
         {
+            #[cfg(target_os = "linux")]
+            if signal == ProcessSignal::Check
+                && std::fs::read_to_string(format!("/proc/{pid}/stat"))
+                    .is_ok_and(|status| terminated_process_state(&status))
+            {
+                return Ok(false);
+            }
             let mut command = Command::with_spawner("kill", self.spawner.clone());
             match signal {
                 ProcessSignal::Check => {
@@ -78,5 +85,28 @@ impl ProcessSignals for SystemProcessSignals {
             let _ = (signal, &self.spawner);
             Ok(false)
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn terminated_process_state(status: &str) -> bool {
+    status
+        .rsplit_once(") ")
+        .and_then(|(_, fields)| fields.split_whitespace().next())
+        .is_some_and(|state| matches!(state, "Z" | "X" | "x"))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zombie_and_dead_processes_are_not_running_even_when_kill_zero_succeeds() {
+        assert!(terminated_process_state("123 (sing-box worker) Z 1 1 1"));
+        assert!(terminated_process_state(
+            "123 (name (with) parentheses) X 1 1 1"
+        ));
+        assert!(!terminated_process_state("123 (xray) S 1 1 1"));
+        assert!(!terminated_process_state("invalid"));
     }
 }

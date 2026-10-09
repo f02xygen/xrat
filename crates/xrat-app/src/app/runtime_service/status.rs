@@ -33,6 +33,13 @@ impl<'a> RuntimeService<'a> {
     }
 
     pub async fn active_session_state(&self) -> crate::app::Result<ActiveSessionState> {
-        active_session_state(self.context, self.process_ports.signals.as_ref()).await
+        let state = active_session_state(self.context, self.process_ports.signals.as_ref()).await?;
+        if let ActiveSessionState::Stale(session) = &state {
+            self.cleanup_session_tun(session.id)?;
+        }
+        if matches!(state, ActiveSessionState::None) {
+            self.cleanup_inactive_tun_ownership().await?;
+        }
+        Ok(state)
     }
 }

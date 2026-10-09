@@ -8,6 +8,8 @@ pub struct TunOwnershipRecord {
     pub ifindex: Option<u32>,
     pub session_id: i64,
     pub engine: String,
+    #[serde(default)]
+    pub policy_rules: Vec<xrat_support::net::KernelPolicyRule>,
 }
 
 pub fn ownership_path(runtime_dir: &Path) -> PathBuf {
@@ -21,10 +23,27 @@ pub fn load_ownership(runtime_dir: &Path) -> Option<TunOwnershipRecord> {
 }
 
 pub fn save_ownership(runtime_dir: &Path, record: &TunOwnershipRecord) -> std::io::Result<()> {
+    use std::io::Write;
     std::fs::create_dir_all(runtime_dir)?;
     let path = ownership_path(runtime_dir);
-    let data = serde_json::to_string_pretty(record)?;
-    std::fs::write(path, data)
+    let temporary = runtime_dir.join(format!(".tun-ownership-{}.tmp", uuid::Uuid::new_v4()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let result = (|| {
+        let mut file = options.open(&temporary)?;
+        file.write_all(&serde_json::to_vec_pretty(record)?)?;
+        file.sync_all()?;
+        std::fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temporary);
+    }
+    result
 }
 
 pub fn clear_ownership(runtime_dir: &Path) {
@@ -48,6 +67,7 @@ mod tests {
             ifindex: Some(42),
             session_id: 100,
             engine: "xray".to_string(),
+            policy_rules: vec![],
         };
         save_ownership(runtime_dir, &record).expect("save");
         assert_eq!(load_ownership(runtime_dir), Some(record));

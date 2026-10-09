@@ -412,6 +412,7 @@ fn generates_runtime_dns_without_adding_it_to_probes() {
         final_server: "xrat-dns-0".to_string(),
         strategy: Some("ipv4_only".to_string()),
         disable_cache: Some(true),
+        reverse_mapping: None,
     };
 
     let config =
@@ -458,6 +459,7 @@ fn native_singbox_validator_accepts_generated_dns_config() {
         final_server: "xrat-dns-0".to_string(),
         strategy: Some("ipv4_only".to_string()),
         disable_cache: Some(true),
+        reverse_mapping: None,
     };
     let config =
         generate_singbox_runtime_config_with_dns(&node, Vec::new(), None, None, Some(&dns))

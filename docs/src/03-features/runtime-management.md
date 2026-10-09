@@ -382,10 +382,15 @@ At least one local inbound (SOCKS by default) must stay enabled. Xray emits a
 native `protocol: "tun"` inbound and manages routes with `autoSystemRoutingTable`;
 this needs a core with working Linux TUN support (Xray >= 26.7.11),
 and older cores are rejected before launch. Generated Xray routes match the address
-families specified in `[runtime.tun].address` (`0.0.0.0/0` for IPv4, `::/0` for IPv6,
-or dual-stack), and routes are omitted entirely if `auto_route = false`.
+families specified in `[runtime.tun].address` (two `/1` prefixes per family,
+or dual-stack). These routes beat a physical default route even at metric zero
+without replacing it. Routes are omitted entirely if `auto_route = false`.
 sing-box emits `type: "tun"` with `route.auto_detect_interface` and routes
 private/LAN destinations direct. V2Ray reports an unsupported error.
+Stack selection, `strict_route` and route exclusions are sing-box-only; Xray
+rejects non-default requests for these settings. Xray always uses its native
+stack. See the [managed capture contract](../06-architecture/managed-capture.md)
+and [DNS policies](dns-policies.md) for version limits and verification commands.
 
 ### Lifecycle and Interface Safety
 

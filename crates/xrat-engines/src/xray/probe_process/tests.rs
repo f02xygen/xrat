@@ -19,6 +19,7 @@ async fn test_xray_process_lifecycle() {
             loglevel: "warning".to_string(),
         },
         inbounds: vec![Inbound {
+            sniffing: None,
             tag: "test-in".to_string(),
             port: Some(10809),
             listen: Some("127.0.0.1".to_string()),
@@ -37,6 +38,7 @@ async fn test_xray_process_lifecycle() {
         stats: None,
         policy: None,
         routing: None,
+        fake_dns: None,
     };
 
     let process = XrayProcess::spawn(&config, Duration::from_secs(5)).await;

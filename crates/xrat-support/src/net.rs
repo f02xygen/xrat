@@ -95,12 +95,81 @@ pub struct KernelInterfaceInfo {
 pub trait TunInterfaceOps: Send + Sync {
     fn inspect_interface(&self, name: &str) -> std::io::Result<Option<KernelInterfaceInfo>>;
     fn delete_interface(&self, name: &str, expected_ifindex: u32) -> std::io::Result<()>;
+    fn policy_rules(&self) -> std::io::Result<Vec<KernelPolicyRule>> {
+        Ok(vec![])
+    }
+    fn delete_policy_rule(&self, _rule: &KernelPolicyRule) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "policy rule deletion is unavailable",
+        ))
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct KernelPolicyRule {
+    pub family: u8,
+    pub destination_prefix: u8,
+    pub source_prefix: u8,
+    #[serde(default)]
+    pub tos: u8,
+    pub table: u8,
+    pub action: u8,
+    pub flags: u32,
+    pub attributes: Vec<KernelRuleAttribute>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct KernelRuleAttribute {
+    pub kind: u16,
+    pub value: Vec<u8>,
+}
+
+impl KernelPolicyRule {
+    pub fn priority(&self) -> Option<u32> {
+        self.attributes
+            .iter()
+            .find(|attribute| attribute.kind == 6)
+            .and_then(|attribute| attribute.value.as_slice().try_into().ok())
+            .map(u32::from_ne_bytes)
+    }
+    pub fn is_singbox_capture_rule(&self) -> bool {
+        matches!(self.family, 2 | 10)
+            && self
+                .priority()
+                .is_some_and(|priority| (9000..=9010).contains(&priority))
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SystemTunInterfaceOps;
 
 impl TunInterfaceOps for SystemTunInterfaceOps {
+    fn policy_rules(&self) -> std::io::Result<Vec<KernelPolicyRule>> {
+        #[cfg(target_os = "linux")]
+        {
+            kernel_rules::list()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Ok(vec![])
+        }
+    }
+
+    fn delete_policy_rule(&self, rule: &KernelPolicyRule) -> std::io::Result<()> {
+        #[cfg(target_os = "linux")]
+        {
+            kernel_rules::delete(rule)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = rule;
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "Linux policy rules only",
+            ))
+        }
+    }
     fn inspect_interface(&self, name: &str) -> std::io::Result<Option<KernelInterfaceInfo>> {
         let name = name.trim();
         if name.is_empty() || name.contains('/') || name == "." || name == ".." {
@@ -108,31 +177,7 @@ impl TunInterfaceOps for SystemTunInterfaceOps {
         }
         #[cfg(target_os = "linux")]
         {
-            let sysfs_net = std::path::Path::new("/sys/class/net").join(name);
-            if !sysfs_net.exists() {
-                return Ok(None);
-            }
-            let ifindex = std::fs::read_to_string(sysfs_net.join("ifindex")).and_then(|value| {
-                value
-                    .trim()
-                    .parse::<u32>()
-                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
-            })?;
-
-            let tun_flags_path = sysfs_net.join("tun_flags");
-            let is_tun = if let Ok(content) = std::fs::read_to_string(&tun_flags_path) {
-                let flags =
-                    u32::from_str_radix(content.trim().trim_start_matches("0x"), 16).unwrap_or(0);
-                (flags & 0x0003) == 0x0001
-            } else {
-                false
-            };
-
-            Ok(Some(KernelInterfaceInfo {
-                name: name.to_string(),
-                ifindex,
-                is_tun,
-            }))
+            kernel_links::inspect(name)
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -163,6 +208,14 @@ impl TunInterfaceOps for SystemTunInterfaceOps {
         }
     }
 }
+
+#[cfg(target_os = "linux")]
+#[path = "net/link.rs"]
+mod kernel_links;
+
+#[cfg(target_os = "linux")]
+#[path = "net/rules.rs"]
+mod kernel_rules;
 
 #[cfg(target_os = "linux")]
 mod linux_netlink {

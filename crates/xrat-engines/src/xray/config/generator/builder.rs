@@ -10,6 +10,7 @@ pub fn generate_probe_config_with_options(
     options: &XrayGenOptions,
 ) -> Result<XrayConfig, String> {
     let inbound = Inbound {
+        sniffing: None,
         tag: "probe-in".to_string(),
         port: Some(local_port),
         listen: Some("127.0.0.1".to_string()),
@@ -30,6 +31,7 @@ pub fn generate_probe_config_with_options(
         stats: None,
         policy: None,
         routing: None,
+        fake_dns: None,
     };
     apply_runtime_tuning(&mut config, options);
     Ok(config)
@@ -85,6 +87,7 @@ pub fn generate_runtime_config_for_inbounds_with_options(
         stats: None,
         policy: None,
         routing: None,
+        fake_dns: None,
     };
     apply_runtime_routing(&mut config, options.routing.as_ref());
     apply_runtime_tuning(&mut config, options);
@@ -99,6 +102,7 @@ pub fn enable_stats_api(config: &mut XrayConfig, host: &str, port: u16) {
     use xrat_config::parsing::core::{ApiObject, ApiServiceName, PolicyObject, SystemPolicyObject};
 
     config.inbounds.push(Inbound {
+        sniffing: None,
         tag: "api".to_string(),
         port: Some(port),
         listen: Some(host.to_string()),
@@ -163,6 +167,7 @@ pub fn enable_tun_capture(config: &mut XrayConfig, options: &XrayTunCaptureOptio
         tun_settings["autoOutboundsInterface"] = json!("auto");
     }
     config.inbounds.push(Inbound {
+        sniffing: None,
         tag: "tun-in".to_string(),
         port: None,
         listen: None,
@@ -244,20 +249,22 @@ pub fn enable_tun_capture(config: &mut XrayConfig, options: &XrayTunCaptureOptio
 
     let dns = config.dns.get_or_insert_with(|| XrayDnsConfig {
         servers: vec![
-            "https://1.1.1.1/dns-query".to_string(),
-            "https://8.8.8.8/dns-query".to_string(),
+            json!("https://1.1.1.1/dns-query"),
+            json!("https://8.8.8.8/dns-query"),
         ],
         hosts: std::collections::BTreeMap::new(),
         query_strategy: "UseIPv4".to_string(),
         use_system_hosts: true,
         disable_cache: false,
         disable_fallback: false,
+        disable_fallback_if_match: None,
         enable_parallel_query: true,
+        tag: None,
     });
     if dns.servers.is_empty() {
         dns.servers = vec![
-            "https://1.1.1.1/dns-query".to_string(),
-            "https://8.8.8.8/dns-query".to_string(),
+            json!("https://1.1.1.1/dns-query"),
+            json!("https://8.8.8.8/dns-query"),
         ];
     }
     for (domain, ip) in options.resolved_hosts {
@@ -282,13 +289,13 @@ fn xray_tun_routes(address: &[String]) -> Vec<&'static str> {
     }
 
     if has_ipv4 {
-        routes.push("0.0.0.0/0");
+        routes.extend(["0.0.0.0/1", "128.0.0.0/1"]);
     }
     if has_ipv6 {
-        routes.push("::/0");
+        routes.extend(["::/1", "8000::/1"]);
     }
     if routes.is_empty() {
-        routes.push("0.0.0.0/0");
+        routes.extend(["0.0.0.0/1", "128.0.0.0/1"]);
     }
     routes
 }
@@ -301,6 +308,7 @@ pub(super) fn build_inbounds(
 
     if let Some((host, port, udp)) = socks {
         inbounds.push(Inbound {
+            sniffing: None,
             tag: "socks-in".to_string(),
             port: Some(port),
             listen: Some(host.to_string()),
@@ -311,6 +319,7 @@ pub(super) fn build_inbounds(
 
     if let Some((host, port)) = http {
         inbounds.push(Inbound {
+            sniffing: None,
             tag: "http-in".to_string(),
             port: Some(port),
             listen: Some(host.to_string()),

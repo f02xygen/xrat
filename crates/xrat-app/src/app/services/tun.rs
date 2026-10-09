@@ -119,6 +119,8 @@ pub(crate) async fn apply_with_ports(
     candidate.app_config.runtime.tun = config.runtime.tun;
     candidate.app_config.runtime.engine = config.runtime.engine;
     candidate.app_config.runtime.xray_compatibility = config.runtime.xray_compatibility;
+    candidate.app_config.dns = config.dns;
+    candidate.app_config.routing = config.routing;
     for (configured, binary) in [
         (&config.paths.xray, &mut candidate.runtime_paths.xray_path),
         (
@@ -164,6 +166,8 @@ pub(crate) async fn apply_with_ports(
         }
         if previous_capture.active != enabled
             || context.app_config.runtime != candidate.app_config.runtime
+            || context.app_config.dns != candidate.app_config.dns
+            || context.app_config.routing != candidate.app_config.routing
         {
             let replace_active = candidate.app_config.runtime.replace_active_session;
             candidate.app_config.runtime.replace_active_session = true;

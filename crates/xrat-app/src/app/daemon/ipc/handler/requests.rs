@@ -26,11 +26,24 @@ pub async fn serve_ping(
     }
 
     let listener = UnixListener::bind(socket_path)?;
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let shutdown_signal = async {
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => result,
+            _ = terminate.recv() => Ok(()),
+        }
+    };
+    tokio::pin!(shutdown_signal);
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
     loop {
         tokio::select! {
             biased;
             _ = shutdown_rx.recv() => break,
+            result = &mut shutdown_signal => {
+                result?;
+                crate::app::daemon::ipc::transport::daemon_shutdown_response_via_supervisor(supervisor_tx.clone()).await?;
+                break;
+            }
             accept_result = listener.accept() => {
                 let (mut stream, _) = accept_result?;
                 let supervisor_tx = supervisor_tx.clone();

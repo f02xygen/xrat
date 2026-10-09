@@ -61,6 +61,12 @@ pub(crate) fn flatten_settings(
             format!("{prefix}.{key}")
         };
         let default_value = defaults.get(key).unwrap_or(&serde_json::Value::Null);
+        if matches!(
+            path.as_str(),
+            "dns.resolvers" | "dns.rules" | "dns.outbound.rules"
+        ) {
+            continue;
+        }
         if SECRET_PATHS.contains(&path.as_str()) {
             output.push(build_setting(
                 path,
@@ -158,16 +164,22 @@ pub(crate) fn json_setting_value(path: &str, value: &serde_json::Value) -> Optio
         serde_json::Value::Bool(value) => Some(SettingValue::Bool(*value)),
         serde_json::Value::Number(value) => value.as_i64().map(SettingValue::Integer),
         serde_json::Value::String(value) => Some(SettingValue::Text(value.clone())),
-        serde_json::Value::Array(values) => Some(SettingValue::List(
-            values
+        serde_json::Value::Array(values)
+            if values
                 .iter()
-                .filter_map(|value| match value {
-                    serde_json::Value::String(value) => Some(value.clone()),
-                    serde_json::Value::Number(value) => Some(value.to_string()),
-                    _ => None,
-                })
-                .collect(),
-        )),
+                .all(|value| value.is_string() || value.is_number()) =>
+        {
+            Some(SettingValue::List(
+                values
+                    .iter()
+                    .filter_map(|value| match value {
+                        serde_json::Value::String(value) => Some(value.clone()),
+                        serde_json::Value::Number(value) => Some(value.to_string()),
+                        _ => None,
+                    })
+                    .collect(),
+            ))
+        }
         serde_json::Value::Null if OPTIONAL_LIST_PATHS.contains(&path) => {
             Some(SettingValue::List(Vec::new()))
         }

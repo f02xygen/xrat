@@ -87,6 +87,7 @@ impl<'a> RuntimeService<'a> {
             })?;
         let launch = self.resolve_launch(&next_config)?;
         if self.context.app_config.runtime.tun.enabled {
+            self.preflight_tun_policy_rules()?;
             crate::app::tun_privileges::ensure_engine_capability_with_spawner(
                 &launch.binary_path,
                 self.process_ports.spawner.clone(),

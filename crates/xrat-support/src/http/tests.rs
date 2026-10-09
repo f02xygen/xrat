@@ -86,3 +86,43 @@ fn status_errors_preserve_redirect_responses() {
         })
     ));
 }
+#[test]
+fn safe_summary_never_copies_untrusted_request_or_response_details() {
+    let secret =
+        "https://user:password@example.invalid/private-token?key=secret redirected to secret";
+    for kind in [
+        HttpErrorKind::Timeout,
+        HttpErrorKind::Connect,
+        HttpErrorKind::Tls,
+        HttpErrorKind::Auth,
+        HttpErrorKind::Redirect,
+        HttpErrorKind::Request,
+        HttpErrorKind::Body,
+        HttpErrorKind::Status,
+        HttpErrorKind::Other,
+    ] {
+        let error = HttpError::new(kind, secret);
+        let summary = error.safe_summary();
+        for token in [
+            "password",
+            "private-token",
+            "secret",
+            "example.invalid",
+            "user:",
+        ] {
+            assert!(!summary.contains(token), "{kind:?}: {summary}");
+        }
+    }
+    assert_eq!(
+        HttpError::new(HttpErrorKind::Connect, format!("dns error: {secret}")).safe_summary(),
+        "DNS lookup failed"
+    );
+    for code in [401, 404, 429, 500, 503] {
+        let error = HttpError::new(
+            HttpErrorKind::Status,
+            format!("HTTP status {code} {secret}"),
+        );
+        assert!(error.safe_summary().contains(&code.to_string()));
+        assert!(!error.safe_summary().contains("secret"));
+    }
+}

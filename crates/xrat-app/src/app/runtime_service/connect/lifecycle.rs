@@ -26,8 +26,14 @@ impl<'a> RuntimeService<'a> {
 
     #[tracing::instrument(skip_all)]
     pub async fn disconnect(&self) -> crate::app::Result<DisconnectResult> {
+        let session = self.context.db.get_running_runtime_session().await?;
         let stopped_session =
             stop_active_session(self.context, self.process_ports.signals.as_ref()).await?;
+        if let Some(session) = session {
+            self.cleanup_session_tun(session.id)?;
+        } else {
+            self.cleanup_inactive_tun_ownership().await?;
+        }
         Ok(DisconnectResult { stopped_session })
     }
 }

@@ -1,58 +1,64 @@
-## xrat v0.24.0
+## xrat v0.25.0
 
-This release adds DNS interception and bootstrap resolution for Xray TUN,
-improves TLS link compatibility, and preserves useful proxy-test errors.
+This release completes managed DNS policies and strengthens TUN capture and
+cleanup for Xray and sing-box.
 
 ### Features
 
-- Xray TUN intercepts TCP/UDP port 53 traffic through a dedicated DNS outbound.
-  If no DNS servers are configured, it uses Cloudflare and Google DoH endpoints
-  over IP.
-- Proxy endpoint and DNS provider domains are resolved before TUN startup to
-  prevent bootstrap routing loops. TLS/Reality server names are preserved when
-  the proxy endpoint is replaced with its resolved IP.
-- Private and local network ranges receive direct routing, with a matching
-  direct outbound when needed.
+- Named DNS resolvers support direct, proxy and explicit bootstrap paths,
+  ordered exact/suffix domain rules, and a final resolver. Endpoint/provider
+  bootstrap runs before replacing an existing connection.
+- Optional loopback DNS listeners accept UDP and TCP. Managed TUN intercepts
+  port-53 DNS traffic through the selected engine's DNS policy.
+- Xray DNS outbound controls support forwarding, destination rewrites, dropped
+  queries and explicit response codes, with preflight validation.
+- Opt-in IPv4/IPv6 FakeIP recovers original domains for direct/proxy routing,
+  honors fixed hosts and exclusions, and supports private persistent mappings on
+  sing-box. Probe and scan flows continue to use real DNS.
+- Runtime settings, validation and documentation define supported TUN/DNS
+  combinations and reject settings the selected engine cannot represent.
 
 ### Fixes
 
-- DNS bootstrap parsing handles IPv6 literals, bracketed IPv6 URLs, optional
-  ports, and Xray DNS schemes including `https+local`, `tcp+local`,
-  `quic+local`, and `h2c`. IP literals and special `localhost`/`fakedns` values
-  do not trigger hostname resolution.
-- Failed bootstrap resolution aborts before replacing an existing runtime,
-  preserving its process and persisted session state.
-- VLESS/TLS links accept `cs`/`cipherSuites`, emitting Xray `cipherSuites` and
-  sing-box `cipher_suites`.
-- HTTP clients send `User-Agent: xrat/0.24.0` by default, while the configurable
-  async client preserves custom agents. HTTP failures include their underlying
-  details.
-- Successful proxy probes supersede ICMP failures. Probe error selection follows
-  overall-status priority, so custom test ordering cannot erase or replace a
-  real proxy failure with a later ping result.
+- Xray capture uses split default routes so a physical route's lower metric
+  cannot bypass TUN capture.
+- Linux interface identity is verified in the active network namespace. Sing-box
+  policy rules are recorded with exact selectors and removed safely after a core
+  failure, without overwriting foreign interfaces or rules.
+- Disconnect, live TUN changes, daemon shutdown, crash recovery and daemon
+  SIGINT/SIGTERM cleanup restore owned network state. Failed bootstrap,
+  unsupported Xray versions and resource collisions preserve the prior runtime.
+- Subscription HTTP errors retain useful status/failure categories while
+  removing provider URLs, credentials and response bodies from diagnostics.
+
+### Development and verification
+
+Python helpers are replaced with ordinary Rust integration tests and Justfile
+recipes. CI uses checksum-pinned native engines and disposable Linux namespaces
+for DNS traffic and TUN lifecycle checks. Local acceptance covered 19 DNS
+scenarios and 10 TUN scenarios on Xray 26.7.11/26.9.30 and sing-box 1.13.21;
+packet evidence is Linux amd64, with other architectures requiring on-host
+verification.
 
 ### Upgrade notes
 
-No CLI flags or database migrations changed. Restart the daemon after upgrading
-to load the new executable, and reapply TUN privileges as needed. Xray TUN still
-requires a supported Xray core and the existing platform permissions.
+No database migration. New DNS policies and FakeIP are opt-in; existing legacy
+DNS server settings remain supported. Restart the daemon after upgrading and
+reapply TUN privileges as needed. Xray managed TUN, DNS outbound controls and
+FakeIP require a known core version of at least 26.7.11. Sing-box requires at
+least 1.13.0 and validates generated configuration with the installed binary.
+System DNS settings are not changed by XRAT.
 
-Xray TUN now pre-resolves endpoint/provider domains and fails early if bootstrap
-resolution is unavailable. Static mappings last for that runtime launch;
-reconnect to refresh them. Custom DNS transports keep their existing Xray
-behavior, including direct/system resolution for local modes.
-
-Rust SDK consumers constructing public structs directly must account for new
-fields: `TlsSettings.cipher_suites`, `RoutingRule.port`/`network`, and
-`RuntimeProcessPorts.resolver`. Use `None` for unused optional fields and the
-default system resolver (or an injected `HostResolver`) for runtime process
-ports.
+Rust SDK consumers constructing public structs directly must update their
+initializers for new generation/DNS fields. Xray DNS server entries now support
+structured JSON values. Prefer defaults for unused generation options; see the
+DNS policy and managed-capture documentation for supported combinations.
 
 ### Thanks
 
-Thank you to [@f02xygen](https://github.com/f02xygen) for contributing Xray TUN
-DNS interception/bootstrap in [#202](https://github.com/mhyrzt/xrat/pull/202)
-and the TLS, HTTP, and probe improvements in
-[#206](https://github.com/mhyrzt/xrat/pull/206).
+Thank you to [@f02xygen](https://github.com/f02xygen) for the Xray TUN
+DNS/bootstrap foundation in [#202](https://github.com/mhyrzt/xrat/pull/202) and
+compatibility/diagnostic improvements in
+[#206](https://github.com/mhyrzt/xrat/pull/206), which this release builds on.
 
-**Full Changelog**: https://github.com/mhyrzt/xrat/compare/v0.23.1...v0.24.0
+**Full Changelog**: https://github.com/mhyrzt/xrat/compare/v0.24.0...v0.25.0
