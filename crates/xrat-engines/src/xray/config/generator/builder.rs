@@ -282,13 +282,13 @@ fn xray_tun_routes(address: &[String]) -> Vec<&'static str> {
     }
 
     if has_ipv4 {
-        routes.push("0.0.0.0/0");
+        routes.extend(["0.0.0.0/1", "128.0.0.0/1"]);
     }
     if has_ipv6 {
-        routes.push("::/0");
+        routes.extend(["::/1", "8000::/1"]);
     }
     if routes.is_empty() {
-        routes.push("0.0.0.0/0");
+        routes.extend(["0.0.0.0/1", "128.0.0.0/1"]);
     }
     routes
 }

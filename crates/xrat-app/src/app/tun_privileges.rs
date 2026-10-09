@@ -96,6 +96,11 @@ pub fn ensure_engine_capability_with_spawner(
     if !capabilities_supported() {
         return Ok(());
     }
+    #[cfg(target_os = "linux")]
+    if std::fs::read_to_string("/proc/self/status").is_ok_and(|status| inherits_net_admin(&status))
+    {
+        return Ok(());
+    }
     let Some(capabilities) = file_capabilities_with_spawner(binary_path, spawner) else {
         return Ok(());
     };
@@ -106,6 +111,24 @@ pub fn ensure_engine_capability_with_spawner(
         )));
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn inherits_net_admin(status: &str) -> bool {
+    let value = |field: &str| {
+        status
+            .lines()
+            .find_map(|line| line.strip_prefix(field))
+            .map(str::trim)
+    };
+    let capability = |field: &str| {
+        value(field)
+            .and_then(|raw| u64::from_str_radix(raw, 16).ok())
+            .is_some_and(|mask| mask & (1 << 12) != 0)
+    };
+    let root = value("Uid:").and_then(|uids| uids.split_whitespace().nth(1)) == Some("0");
+    capability("CapBnd:")
+        && (capability("CapAmb:") || (root && capability("CapPrm:") && capability("CapEff:")))
 }
 
 /// Inspect whether systemd user service blocks TUN capabilities via NoNewPrivileges=true.
@@ -185,6 +208,23 @@ mod tests {
     use std::path::Path;
 
     use super::{TUN_CAPABILITIES, has_net_admin, resolve_executable};
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn inherited_engine_capabilities_require_root_or_ambient_and_bounding_set() {
+        assert!(super::inherits_net_admin(
+            "Uid:\t0 0 0 0\nCapPrm:\t1000\nCapEff:\t1000\nCapBnd:\t1000\nCapAmb:\t0\n"
+        ));
+        assert!(super::inherits_net_admin(
+            "Uid:\t1000 1000 1000 1000\nCapPrm:\t1000\nCapEff:\t1000\nCapBnd:\t1000\nCapAmb:\t1000\n"
+        ));
+        assert!(!super::inherits_net_admin(
+            "Uid:\t1000 1000 1000 1000\nCapPrm:\t1000\nCapEff:\t1000\nCapBnd:\t1000\nCapAmb:\t0\n"
+        ));
+        assert!(!super::inherits_net_admin(
+            "Uid:\t0 0 0 0\nCapPrm:\t1000\nCapEff:\t1000\nCapBnd:\t0\nCapAmb:\t0\n"
+        ));
+    }
 
     #[test]
     fn detects_net_admin_in_capability_strings() {

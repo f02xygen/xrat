@@ -1,6 +1,167 @@
 use super::*;
 
 impl RuntimeService<'_> {
+    pub(crate) async fn cleanup_inactive_tun_ownership(&self) -> crate::app::Result<()> {
+        let Some(record) = tun_ownership::load_ownership(&self.context.runtime_paths.runtime_dir)
+        else {
+            return Ok(());
+        };
+        let Some(session) = self
+            .context
+            .db
+            .get_latest_runtime_session()
+            .await?
+            .filter(|session| session.id == record.session_id)
+        else {
+            return Err(AppError::InvalidArgument(
+                "TUN ownership has no matching latest session; refusing automatic cleanup".into(),
+            ));
+        };
+        if matches!(
+            session.status,
+            RuntimeSessionStatus::Stopped | RuntimeSessionStatus::Failed
+        ) && !runtime_session_is_alive(&session, self.process_ports.signals.as_ref())
+        {
+            self.cleanup_session_tun(session.id)?;
+        }
+        Ok(())
+    }
+    pub(crate) async fn finish_tun_startup(
+        &self,
+        session_id: i64,
+        pid: u32,
+    ) -> crate::app::Result<()> {
+        if !self.context.app_config.runtime.tun.enabled {
+            return Ok(());
+        }
+        if let Err(error) = self.record_ready_tun_ownership(session_id, pid).await {
+            let termination = xray_runtime::terminate_process_gracefully_with_signals(
+                i64::from(pid),
+                SHUTDOWN_TIMEOUT,
+                self.process_ports.signals.as_ref(),
+            );
+            let cleanup = if termination.is_ok() {
+                self.cleanup_session_tun(session_id)
+            } else {
+                Err(AppError::InvalidArgument(
+                    "TUN process termination failed; ownership retained".into(),
+                ))
+            };
+            let error = match cleanup {
+                Ok(()) => error,
+                Err(cleanup) => AppError::InvalidArgument(format!("{error}; {cleanup}")),
+            };
+            self.context
+                .db
+                .update_runtime_session_state(
+                    session_id,
+                    RuntimeSessionStatus::Failed,
+                    Some(i64::from(pid)),
+                    None,
+                    Some(&now_string()),
+                    Some(&error.to_string()),
+                )
+                .await?;
+            return Err(error);
+        }
+        Ok(())
+    }
+    pub(crate) fn preflight_tun_policy_rules(&self) -> crate::app::Result<()> {
+        let tun = &self.context.app_config.runtime.tun;
+        if !tun.enabled || !tun.auto_route || self.context.app_config.runtime.engine != "sing-box" {
+            return Ok(());
+        }
+        let owned = tun_ownership::load_ownership(&self.context.runtime_paths.runtime_dir);
+        for rule in self
+            .process_ports
+            .tun
+            .policy_rules()?
+            .into_iter()
+            .filter(|rule| rule.is_singbox_capture_rule())
+        {
+            if !owned.as_ref().is_some_and(|record| {
+                record.ifindex.is_some_and(|index| index > 0) && record.policy_rules.contains(&rule)
+            }) {
+                return Err(AppError::InvalidArgument("sing-box capture policy priorities 9000..9010 are already in use by an unowned rule; current connection preserved".into()));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn record_ready_tun_ownership(
+        &self,
+        session_id: i64,
+        pid: u32,
+    ) -> crate::app::Result<()> {
+        let tun = &self.context.app_config.runtime.tun;
+        let singbox = self.context.app_config.runtime.engine == "sing-box";
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(info) = self
+                .process_ports
+                .tun
+                .inspect_interface(&tun.interface_name)?
+            {
+                if !info.is_tun || info.ifindex == 0 {
+                    return Err(AppError::InvalidArgument(
+                        "new managed interface is not a verified kernel TUN".into(),
+                    ));
+                }
+                let rules = if singbox && tun.auto_route {
+                    self.process_ports
+                        .tun
+                        .policy_rules()?
+                        .into_iter()
+                        .filter(|rule| rule.is_singbox_capture_rule())
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![]
+                };
+                tun_ownership::save_ownership(
+                    &self.context.runtime_paths.runtime_dir,
+                    &tun_ownership::TunOwnershipRecord {
+                        interface_name: tun.interface_name.clone(),
+                        ifindex: Some(info.ifindex),
+                        session_id,
+                        engine: self.context.app_config.runtime.engine.clone(),
+                        policy_rules: rules.clone(),
+                    },
+                )?;
+                if !singbox
+                    || !tun.auto_route
+                    || tun.address.iter().all(|address| {
+                        let family = if address.contains(':') { 10 } else { 2 };
+                        rules
+                            .iter()
+                            .any(|rule| rule.family == family && rule.priority() == Some(9010))
+                    })
+                {
+                    return Ok(());
+                }
+            }
+            if tokio::time::Instant::now() >= deadline
+                || !self.process_ports.signals.is_running(i64::from(pid))
+            {
+                return Err(AppError::InvalidArgument(
+                    "TUN startup timeout: verified interface and capture rules were not ready"
+                        .into(),
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    pub(crate) fn cleanup_session_tun(&self, session_id: i64) -> crate::app::Result<()> {
+        let Some(record) = tun_ownership::load_ownership(&self.context.runtime_paths.runtime_dir)
+            .filter(|record| record.session_id == session_id)
+        else {
+            return Ok(());
+        };
+        let mut context = self.context.clone();
+        context.app_config.runtime.tun.interface_name = record.interface_name;
+        RuntimeService::with_process_ports(&context, self.process_ports.clone())
+            .cleanup_stale_tun_interface()
+    }
     pub(crate) fn verify_tun_interface(
         &self,
     ) -> crate::app::Result<Option<xrat_support::net::KernelInterfaceInfo>> {
@@ -56,7 +217,24 @@ impl RuntimeService<'_> {
     }
 
     pub(crate) fn cleanup_stale_tun_interface(&self) -> crate::app::Result<()> {
-        let Some(info) = self.verify_tun_interface()? else {
+        let record = tun_ownership::load_ownership(&self.context.runtime_paths.runtime_dir);
+        let info = self.verify_tun_interface()?;
+        if let Some(record) = &record
+            && !record.policy_rules.is_empty()
+        {
+            if record.engine != "sing-box" || record.ifindex.is_none_or(|index| index == 0) {
+                return Err(AppError::InvalidArgument(
+                    "policy cleanup requires verified sing-box TUN ownership".into(),
+                ));
+            }
+            let current = self.process_ports.tun.policy_rules()?;
+            for rule in &record.policy_rules {
+                if current.contains(rule) {
+                    self.process_ports.tun.delete_policy_rule(rule)?;
+                }
+            }
+        }
+        let Some(info) = info else {
             tun_ownership::clear_ownership(&self.context.runtime_paths.runtime_dir);
             return Ok(());
         };

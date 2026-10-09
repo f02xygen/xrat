@@ -58,6 +58,7 @@ impl<'a> RuntimeService<'a> {
         }
 
         if tun_enabled {
+            self.preflight_tun_policy_rules()?;
             crate::app::tun_privileges::ensure_engine_capability_with_spawner(
                 &launch.binary_path,
                 self.process_ports.spawner.clone(),
@@ -146,6 +147,7 @@ impl<'a> RuntimeService<'a> {
                     ifindex: None,
                     session_id,
                     engine: self.context.app_config.runtime.engine.clone(),
+                    policy_rules: vec![],
                 },
             );
         }
@@ -181,19 +183,10 @@ impl<'a> RuntimeService<'a> {
             }
         };
 
-        if tun_enabled {
-            let interface = self.context.app_config.runtime.tun.interface_name.trim();
-            if let Ok(Some(info)) = self.process_ports.tun.inspect_interface(interface) {
-                let _ = tun_ownership::save_ownership(
-                    &self.context.runtime_paths.runtime_dir,
-                    &tun_ownership::TunOwnershipRecord {
-                        interface_name: interface.to_string(),
-                        ifindex: (info.ifindex > 0).then_some(info.ifindex),
-                        session_id,
-                        engine: self.context.app_config.runtime.engine.clone(),
-                    },
-                );
-            }
+        if let Err(error) = self.finish_tun_startup(session_id, process.pid).await {
+            return Err(self
+                .rollback_runtime_error(previous_active_config_id, error)
+                .await);
         }
 
         self.context
