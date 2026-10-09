@@ -105,6 +105,14 @@ jobs:
         run: sudo env XRAT_RUNTIME_CLI="$PWD/target/debug/xrat" XRAT_RUNTIME_XRAY="$RUNNER_TEMP/runtime-engines/xray" XRAT_RUNTIME_SINGBOX="$RUNNER_TEMP/runtime-engines/sing-box" XRAT_RUNTIME_OUTPUT="$RUNNER_TEMP/runtime-tun" "$XRAT_RUNTIME_TEST_BINARY" --ignored --exact tun_network --nocapture
       - name: Exercise newer Xray managed capture and cleanup
         run: sudo env XRAT_RUNTIME_CLI="$PWD/target/debug/xrat" XRAT_RUNTIME_XRAY="$RUNNER_TEMP/runtime-engines/xray-new" XRAT_RUNTIME_SINGBOX="$RUNNER_TEMP/runtime-engines/sing-box" XRAT_RUNTIME_OUTPUT="$RUNNER_TEMP/runtime-tun-new" "$XRAT_RUNTIME_TEST_BINARY" --ignored --exact tun_network --nocapture
+      - name: Restore receipt ownership for artifact upload
+        if: always()
+        run: |
+          for directory in "$RUNNER_TEMP/runtime-native" "$RUNNER_TEMP/runtime-tun" "$RUNNER_TEMP/runtime-tun-new"; do
+            if [ -d "$directory" ]; then
+              sudo chown -R "$(id -u):$(id -g)" "$directory"
+            fi
+          done
       - name: Upload native and network receipts
         if: always()
         uses: actions/upload-artifact@v4
@@ -115,3 +123,4 @@ jobs:
             ${{ runner.temp }}/runtime-tun
             ${{ runner.temp }}/runtime-tun-new
             ${{ runner.temp }}/runtime-engines/engine-receipts.json
+            !${{ runner.temp }}/runtime-native/resolver.key
