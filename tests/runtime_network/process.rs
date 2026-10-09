@@ -32,8 +32,20 @@ pub fn enter_namespace(test: &str) -> bool {
         assert_isolated();
         return true;
     }
+    let effective_uid = fs::read_to_string("/proc/self/status")
+        .unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))
+        .and_then(|uids| uids.split_whitespace().nth(1))
+        .map(str::to_owned)
+        .expect("missing effective UID");
+    let arguments: &[&str] = if effective_uid == "0" {
+        &["--net"]
+    } else {
+        &["--user", "--map-root-user", "--net"]
+    };
     let status = Command::new("unshare")
-        .args(["--user", "--map-root-user", "--net"])
+        .args(arguments)
         .arg(std::env::current_exe().unwrap())
         .args(["--ignored", "--exact", test, "--nocapture"])
         .env("XRAT_TEST_NAMESPACE", test)
