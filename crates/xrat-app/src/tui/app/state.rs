@@ -110,6 +110,7 @@ impl TuiApp {
             TuiAction::CancelTestBatch => {
                 if self.task_state.running.is_some() {
                     self.task_state.cancel();
+                    self.testing_config_ids.clear();
                 }
             }
             TuiAction::Confirm => self.confirm = None,

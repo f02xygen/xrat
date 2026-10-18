@@ -79,7 +79,38 @@ pub(crate) async fn run_bulk_for_configs_cancellable(
         );
     }
 
-    while let Some(joined) = join_set.join_next().await {
+    let cancel_future = async {
+        if let Some(rx) = &cancel_rx {
+            rx.cancelled().await;
+        } else {
+            std::future::pending::<()>().await;
+        }
+    };
+    tokio::pin!(cancel_future);
+
+    loop {
+        if cancelled() {
+            join_set.abort_all();
+            break;
+        }
+
+        if join_set.is_empty() {
+            break;
+        }
+
+        let joined = tokio::select! {
+            _ = &mut cancel_future => {
+                join_set.abort_all();
+                break;
+            }
+            res = join_set.join_next() => {
+                match res {
+                    Some(res) => res,
+                    None => break,
+                }
+            }
+        };
+
         match joined {
             Ok(Ok(output)) => {
                 completed += 1;
@@ -104,7 +135,7 @@ pub(crate) async fn run_bulk_for_configs_cancellable(
 
         if cancelled() {
             join_set.abort_all();
-            continue;
+            break;
         }
 
         if let Some(config) = next_config.next() {
