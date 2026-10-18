@@ -1005,6 +1005,10 @@ mod process_tests {
         assert!(override_file.exists());
         let content = std::fs::read_to_string(&override_file).unwrap();
         assert!(content.contains("NoNewPrivileges=false"));
+        assert!(content.contains("ProtectSystem=false"));
+        assert!(content.contains("ProtectHome=false"));
+        assert!(content.contains("PrivateTmp=false"));
+        assert!(content.contains("ReadWritePaths="));
 
         let uninstall = DaemonUninstallArgs { dry_run: false };
         uninstall_with_dependencies(&context, &uninstall, spawner.clone(), &env).unwrap();

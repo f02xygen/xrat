@@ -1,2 +1,6 @@
 [Service]
 NoNewPrivileges=false
+ProtectSystem=false
+ProtectHome=false
+PrivateTmp=false
+ReadWritePaths=
