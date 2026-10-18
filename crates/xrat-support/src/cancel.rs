@@ -1,20 +1,30 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::Notify;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct CancellationFlag {
     flag: Arc<AtomicBool>,
+    notify: Arc<Notify>,
+}
+
+impl Default for CancellationFlag {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CancellationFlag {
     pub fn new() -> Self {
         Self {
             flag: Arc::new(AtomicBool::new(false)),
+            notify: Arc::new(Notify::new()),
         }
     }
 
     pub fn cancel(&self) {
         self.flag.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -31,20 +41,44 @@ impl std::fmt::Debug for CancellationFlag {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct CancellationReceiver {
     flag: Arc<AtomicBool>,
+    notify: Arc<Notify>,
+}
+
+impl Default for CancellationReceiver {
+    fn default() -> Self {
+        Self {
+            flag: Arc::new(AtomicBool::new(false)),
+            notify: Arc::new(Notify::new()),
+        }
+    }
 }
 
 impl CancellationReceiver {
     pub fn from_flag(flag: &CancellationFlag) -> Self {
         Self {
             flag: flag.flag.clone(),
+            notify: flag.notify.clone(),
         }
     }
 
     pub fn is_cancelled(&self) -> bool {
         self.flag.load(Ordering::SeqCst)
+    }
+
+    pub async fn cancelled(&self) {
+        loop {
+            if self.is_cancelled() {
+                return;
+            }
+            let notified = self.notify.notified();
+            if self.is_cancelled() {
+                return;
+            }
+            notified.await;
+        }
     }
 }
 
@@ -95,5 +129,33 @@ mod tests {
         flag.cancel();
 
         assert!(cloned.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn receiver_cancelled_future_resolves_when_flag_cancelled() {
+        let flag = CancellationFlag::new();
+        let receiver = CancellationReceiver::from_flag(&flag);
+
+        let handle = tokio::spawn(async move {
+            receiver.cancelled().await;
+            true
+        });
+
+        tokio::task::yield_now().await;
+        assert!(!handle.is_finished());
+
+        flag.cancel();
+        assert!(handle.await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn receiver_cancelled_resolves_immediately_if_already_cancelled() {
+        let flag = CancellationFlag::new();
+        flag.cancel();
+        let receiver = CancellationReceiver::from_flag(&flag);
+
+        tokio::time::timeout(std::time::Duration::from_millis(50), receiver.cancelled())
+            .await
+            .expect("should resolve immediately");
     }
 }
