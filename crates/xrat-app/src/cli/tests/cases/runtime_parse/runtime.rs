@@ -125,7 +125,7 @@ fn parses_runtime_commands() {
     let connect = Cli::parse_from(["xrat", "connect", "42", "--json"]);
     match connect.command {
         Command::Connect(args) => {
-            assert_eq!(args.id, "42");
+            assert_eq!(args.id.as_deref(), Some("42"));
             assert!(args.json);
         }
         _ => panic!("expected connect command"),
@@ -148,7 +148,16 @@ fn parses_runtime_commands() {
 fn parses_connect_ref_prefix() {
     let connect = Cli::parse_from(["xrat", "connect", "a1b2"]);
     match connect.command {
-        Command::Connect(args) => assert_eq!(args.id, "a1b2"),
+        Command::Connect(args) => assert_eq!(args.id.as_deref(), Some("a1b2")),
+        _ => panic!("expected connect command"),
+    }
+}
+
+#[test]
+fn parses_connect_without_id() {
+    let connect = Cli::parse_from(["xrat", "connect"]);
+    match connect.command {
+        Command::Connect(args) => assert!(args.id.is_none()),
         _ => panic!("expected connect command"),
     }
 }
