@@ -4,7 +4,7 @@ use tracing::Instrument;
 use crate::app::context::AppContext;
 use crate::app::services::runtime_control;
 use crate::tui::app::TuiApp;
-use crate::tui::data::TuiData;
+use crate::tui::data::{TuiData, TuiRuntimeStatus};
 use crate::tui::task::{TuiTaskEvent, TuiTaskKind};
 
 fn begin_runtime_op(
@@ -338,5 +338,47 @@ pub fn spawn_runtime_tun_split(
             }
         };
         let _ = task_tx.send(event);
+    });
+}
+
+pub fn spawn_poll_runtime(
+    mut context: AppContext,
+    runtime_tx: &mpsc::UnboundedSender<crate::tui::data::TuiRuntimeStatus>,
+) {
+    let runtime_tx = runtime_tx.clone();
+    tokio::spawn(async move {
+        let _ = crate::app::services::tun_control::reload(&mut context);
+
+        let Ok(snapshot) = crate::app::runtime_service::RuntimeService::new(&context)
+            .status()
+            .await
+        else {
+            return;
+        };
+
+        let tun_state = crate::app::services::tun::capture_state(
+            &context,
+            &snapshot,
+            &xrat_support::readiness::RuntimeProcessPorts::default(),
+        );
+
+        let split_summary = crate::app::services::tun_control::split_summary(&tun_state);
+        let tun_label = if tun_state.active {
+            Some(format!(
+                "{} ({}) · {split_summary}",
+                tun_state.interface.as_deref().unwrap_or("tun"),
+                tun_state.engine,
+            ))
+        } else if tun_state.enabled {
+            Some(format!("enabled (inactive) · {split_summary}"))
+        } else {
+            None
+        };
+
+        let mut status = TuiRuntimeStatus::from_snapshot(snapshot, None);
+        status.tun = tun_label;
+        status.tun_active = tun_state.active;
+
+        let _ = runtime_tx.send(status);
     });
 }

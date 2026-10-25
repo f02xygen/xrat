@@ -23,6 +23,8 @@ pub async fn run(context: &AppContext) -> crate::app::Result<()> {
     let (logs_tx, mut logs_rx) = mpsc::unbounded_channel();
     let (engines_tx, mut engines_rx) = mpsc::unbounded_channel();
     let (stats_tx, mut stats_rx) = mpsc::unbounded_channel();
+    let (runtime_tx, mut runtime_rx) =
+        mpsc::unbounded_channel::<crate::tui::data::TuiRuntimeStatus>();
     tasks::spawn_version_check(version_tx);
     tasks::spawn_probe_engines(context.clone(), &engines_tx);
     let mut geo_lookup = crate::app::services::dashboard::build_geo_lookup(
@@ -39,6 +41,8 @@ pub async fn run(context: &AppContext) -> crate::app::Result<()> {
     let mut log_refresh_pending = false;
     let mut last_stats_poll = std::time::Instant::now();
     let mut stats_poll_pending = false;
+    let mut last_runtime_poll = std::time::Instant::now();
+    let mut runtime_poll_pending = false;
     let mut needs_redraw = true;
 
     loop {
@@ -56,6 +60,19 @@ pub async fn run(context: &AppContext) -> crate::app::Result<()> {
                 tasks::enrichment_targets(&app.data),
                 &task_tx,
             );
+        }
+        while let Ok(runtime_status) = runtime_rx.try_recv() {
+            runtime_poll_pending = false;
+            if app.data.runtime != runtime_status {
+                let _ = crate::app::services::tun_control::reload(&mut context);
+                app.data.runtime = runtime_status;
+                needs_redraw = true;
+            }
+        }
+        if !runtime_poll_pending && last_runtime_poll.elapsed() >= Duration::from_secs(1) {
+            tasks::spawn_poll_runtime(context.clone(), &runtime_tx);
+            runtime_poll_pending = true;
+            last_runtime_poll = std::time::Instant::now();
         }
         while let Ok(result) = logs_rx.try_recv() {
             log_refresh_pending = false;
