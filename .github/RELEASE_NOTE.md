@@ -1,60 +1,57 @@
-## xrat v0.32.0
+## xrat v0.33.0
 
-This release adds experimental Windows x64 and ARM64 support, including native
-daemon control, protected background services, PowerShell integration, desktop
-proxy restoration, and coordinated upgrades.
+This release makes reconnecting easier, keeps TUI runtime indicators current,
+and improves keyboard layout support and subscription naming.
 
-### Windows support
+### Highlights
 
-- Publish Windows x64 and ARM64 ZIP archives with SHA-256 checksums alongside
-  the Linux and macOS archives. The PowerShell installer verifies downloads
-  before replacing the executable.
-- Add local-only named-pipe daemon control and a protected LocalSystem service.
-  The registered operator can use shared CLI, TUI, and Web application services
-  without routinely elevating the interface.
-- Add PowerShell proxy scripts, completions and setup guidance, plus
-  ownership-aware WinINET manual/PAC proxy restoration.
-- Coordinate ordinary-user and machine-service upgrades, preserving prior
-  running state and retaining recovery evidence when replacement fails.
-- Add managed Windows TUN integration for Xray and sing-box, with protected
-  Wintun provisioning, adapter identity checks and ownership-aware cleanup.
-  Windows V2Ray TUN remains outside this release's scope.
-- Exercise native x64/ARM64 installers, services, security boundaries, proxy
-  engines, packaged daemon/browser assets/login, and upgrade transactions in CI.
+- Run `xrat connect` or `xrat connect latest` to reconnect using the most recent
+  persisted runtime session. Explicit config IDs and references continue to
+  work, including remote targets. If no previous session exists, provide a
+  config reference.
+- Keep TUI connection and TUN indicators synchronized with changes made by the
+  CLI or daemon. Polling recovers from transient errors and uses the shared
+  runtime projection, including Windows machine-service TUN state.
+- On Unix terminals reporting Kitty base-layout keys, use command shortcuts
+  across keyboard layouts while preserving shifted commands and typed Unicode
+  text. Legacy text input and standalone Escape remain supported.
+- Detect new subscription names from `Profile-Title`, `Content-Disposition`, URL
+  fragments, or common query parameters. Explicit names always win, existing
+  names survive refresh, and CLI, TUI, and Web imports share the same automatic
+  precedence.
 
-Thanks to [@subfocusx](https://github.com/subfocusx) for the initial Windows
-contribution in [#259](https://github.com/mhyrzt/xrat/pull/259). The runtime and
-acceptance implementation is tracked in
-[#268](https://github.com/mhyrzt/xrat/pull/268).
+### Reliability fixes
 
-### Experimental status and remaining checks
+- Preserve commands such as `U`, `K`, and `?`, associated Unicode text, and
+  AltGr text input. Keep incomplete escape sequences and UTF-8 characters
+  buffered until complete; flush ordinary text and lone Escape at the
+  appropriate time.
+- Preserve subscription names beginning with `sub-` and names chosen by users
+  during manual, automatic, and Web refreshes.
+- Parse quoted and extended Content-Disposition filenames, including escaped
+  quotes, semicolons, language fields, and empty-name fallback.
+- Retain dashboard endpoint addresses and service-owned TUN indicators during
+  background polling. Regression hardening is included in
+  [#279](https://github.com/mhyrzt/xrat/pull/279).
 
-> [!WARNING]
->
-> Windows support is experimental. Native automated checks cover the service,
-> proxy and upgrade paths, including Wintun adapter creation/release. Actual TUN
-> traffic, DNS, IPv4/IPv6, bypass, replacement and crash recovery remain
-> unverified. Interactive Windows 11 UAC, Terminal, desktop, login and reboot
-> checks also remain outstanding. These results do not establish full Windows
-> support.
+### Contributors
 
-Track remaining acceptance in the
-[Windows Support roadmap](https://github.com/mhyrzt/xrat/issues/262). Feel free
-to [open an issue](https://github.com/mhyrzt/xrat/issues) or
-[submit a pull request](https://github.com/mhyrzt/xrat/pulls) to report problems
-or help improve support.
+Thank you to the contributors who made these improvements possible:
+
+- [@f02xygen](https://github.com/f02xygen) — reconnecting to the latest config
+  in [#274](https://github.com/mhyrzt/xrat/pull/274) and live TUI runtime/TUN
+  indicators in [#275](https://github.com/mhyrzt/xrat/pull/275).
+- [@XesteRR76](https://github.com/XesteRR76) — layout-independent TUI keyboard
+  support in [#276](https://github.com/mhyrzt/xrat/pull/276) and automatic
+  subscription naming in [#277](https://github.com/mhyrzt/xrat/pull/277).
 
 ### Upgrade notes
 
-- This release adds no database migrations. Existing configurations remain
+- No new database migrations are included. Existing configuration files remain
   valid.
-- Windows users should use the PowerShell installer or the ZIP matching their
-  architecture. Machine service/core/driver provisioning requires elevation;
-  routine operator access uses the protected service gateway.
-- Managed Windows TUN targets Xray `>=26.9.30, <27` and sing-box
-  `>=1.13.21, <1.14`. Follow the
-  [TUN guide](https://github.com/mhyrzt/xrat/blob/v0.32.0/docs/src/02-cli/tun.md)
-  for setup and limitations.
+- Windows support remains experimental. Native automated checks do not replace
+  the outstanding interactive Windows and actual TUN traffic acceptance work;
+  see the [Windows Support roadmap](https://github.com/mhyrzt/xrat/issues/262).
 - Refresh an already open browser tab after upgrading.
 
-**Full Changelog**: https://github.com/mhyrzt/xrat/compare/v0.31.3...v0.32.0
+**Full Changelog**: https://github.com/mhyrzt/xrat/compare/v0.32.0...v0.33.0
