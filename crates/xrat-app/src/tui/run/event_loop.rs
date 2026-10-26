@@ -787,12 +787,12 @@ pub(super) fn prepare_import_submission(app: &mut TuiApp) -> Option<tasks::TuiIm
             url,
             suggested_name,
         } => {
-            let name = if input.is_empty() {
-                suggested_name
-            } else {
-                input
-            };
-            Some(tasks::TuiImport::Subscription { url, name })
+            let name = (!input.is_empty()).then_some(input);
+            Some(tasks::TuiImport::Subscription {
+                url,
+                name,
+                fallback_name: suggested_name,
+            })
         }
     }
 }

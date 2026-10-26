@@ -12,7 +12,18 @@ pub async fn import_subscription(
     name: Option<&str>,
     headers: &BTreeMap<String, String>,
 ) -> crate::app::Result<ImportSummary> {
-    let (source, bytes) = super::load_subscription_input(input, headers).await?;
+    import_subscription_with_fallback(database, input, name, None, headers).await
+}
+
+pub(crate) async fn import_subscription_with_fallback(
+    database: &Database,
+    input: &str,
+    name: Option<&str>,
+    fallback_name: Option<&str>,
+    headers: &BTreeMap<String, String>,
+) -> crate::app::Result<ImportSummary> {
+    let (mut source, bytes) = super::load_subscription_input(input, headers).await?;
+    source.name = source.name.or_else(|| fallback_name.map(str::to_owned));
     let nodes = super::parse_nodes(&bytes)?;
     let stored_headers = matches!(source.kind, xrat_db::SourceKind::Url).then_some(headers);
     super::persist_nodes(database, source, &nodes, name, stored_headers).await

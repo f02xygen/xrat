@@ -52,13 +52,18 @@ fn blank_subscription_name_uses_generated_suggestion() {
     };
     app.import_modal.as_mut().expect("modal").input = "   ".to_string();
 
-    let Some(tasks::TuiImport::Subscription { url, name }) = prepare_import_submission(&mut app)
+    let Some(tasks::TuiImport::Subscription {
+        url,
+        name,
+        fallback_name,
+    }) = prepare_import_submission(&mut app)
     else {
         panic!("subscription import should be prepared");
     };
 
     assert_eq!(url, "https://example.com/sub");
-    assert_eq!(name, suggested_name);
+    assert_eq!(name, None);
+    assert_eq!(fallback_name, suggested_name);
 }
 
 #[test]
@@ -78,11 +83,16 @@ fn subscription_url_with_fragment_extracts_name_in_modal() {
     assert_eq!(suggested_name, "MyProvider");
 
     // With blank input, it should use the extracted fragment name
-    let Some(tasks::TuiImport::Subscription { name, .. }) = prepare_import_submission(&mut app)
+    let Some(tasks::TuiImport::Subscription {
+        name,
+        fallback_name,
+        ..
+    }) = prepare_import_submission(&mut app)
     else {
         panic!("subscription import should be prepared");
     };
-    assert_eq!(name, "MyProvider");
+    assert_eq!(name, None);
+    assert_eq!(fallback_name, "MyProvider");
 }
 
 #[test]
@@ -98,11 +108,16 @@ fn subscription_url_with_encoded_cyrillic_fragment_extracts_name() {
     };
     assert_eq!(suggested_name, "Моя Подписка");
 
-    let Some(tasks::TuiImport::Subscription { name, .. }) = prepare_import_submission(&mut app)
+    let Some(tasks::TuiImport::Subscription {
+        name,
+        fallback_name,
+        ..
+    }) = prepare_import_submission(&mut app)
     else {
         panic!("subscription import should be prepared");
     };
-    assert_eq!(name, "Моя Подписка");
+    assert_eq!(name, None);
+    assert_eq!(fallback_name, "Моя Подписка");
 }
 
 #[test]

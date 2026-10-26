@@ -80,7 +80,8 @@ async fn subscription_import_persists_name_and_reuses_url() {
             &context,
             TuiImport::Subscription {
                 url: url.clone(),
-                name: name.to_string(),
+                name: Some(name.to_string()),
+                fallback_name: "sub-fallback".into(),
             },
         )
         .await
@@ -95,4 +96,52 @@ async fn subscription_import_persists_name_and_reuses_url() {
     assert_eq!(subscriptions.len(), 1);
     assert_eq!(subscriptions[0].name.as_deref(), Some("Second"));
     assert_eq!(context.db.get_config_count().await.expect("count"), 1);
+}
+
+#[tokio::test]
+async fn automatic_tui_name_uses_server_precedence_and_preserves_explicit_names() {
+    let (_root, context) = test_context().await;
+    let (url, server) = crate::app::tests::fixtures::named_subscription_url(2).await;
+    for (name, expected) in [
+        (None, "ServerProvider"),
+        (Some("sub-work".into()), "sub-work"),
+    ] {
+        let message = run_import(
+            &context,
+            TuiImport::Subscription {
+                url: url.clone(),
+                name,
+                fallback_name: "UrlProvider".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let stored = context.db.list_subscriptions().await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].name.as_deref(), Some(expected));
+        assert!(message.ends_with(expected));
+    }
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn automatic_tui_name_uses_fallback_only_when_metadata_is_absent() {
+    let (_root, context) = test_context().await;
+    let url = subscription_url(1).await;
+    run_import(
+        &context,
+        TuiImport::Subscription {
+            url,
+            name: None,
+            fallback_name: "sub-fallback".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        context.db.list_subscriptions().await.unwrap()[0]
+            .name
+            .as_deref(),
+        Some("sub-fallback")
+    );
 }

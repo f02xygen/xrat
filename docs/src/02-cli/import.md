@@ -92,6 +92,16 @@ xrat import "vless://uuid@example.com:443?type=ws&security=tls#MyNode"
    brings them back restores them. An empty payload removes nothing.
 8. Prints an import summary, including the count of removed configs
 
+For a new URL subscription without `--name`, the name comes from `Profile-Title`
+(plain text or `base64:`), then the `Content-Disposition` filename, then the URL
+fragment, then a `name`, `title`, `tag`, or `remark` query parameter. An explicit
+name always wins, including names beginning with `sub-`.
+
+Reimporting or refreshing a saved subscription without an explicit name preserves
+its existing name. The TUI and Web UI follow the same rules. In the TUI, accepting
+the suggested name leaves automatic detection enabled; typing a name makes it
+explicit. The generated TUI suggestion is used when no metadata supplies a name.
+
 ## Related
 
 - [`add`](config-management.md#add) — add a single config URI without

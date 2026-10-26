@@ -7,10 +7,10 @@ use xrat_support::http::HeaderMap;
 /// 2. URL fragment (`#MySubscription`)
 /// 3. URL query parameters (`?name=...`, `?title=...`, etc.)
 pub fn detect_subscription_name(url: &str, headers: Option<&HeaderMap>) -> Option<String> {
-    if let Some(headers) = headers {
-        if let Some(name) = extract_subscription_name_from_headers(headers) {
-            return Some(name);
-        }
+    if let Some(headers) = headers
+        && let Some(name) = extract_subscription_name_from_headers(headers)
+    {
+        return Some(name);
     }
     detect_subscription_name_from_url(url)
 }
@@ -48,177 +48,112 @@ pub fn detect_subscription_name_from_url(url_str: &str) -> Option<String> {
 
 /// Extracts a subscription profile name from HTTP response headers.
 pub fn extract_subscription_name_from_headers(headers: &HeaderMap) -> Option<String> {
-    // 1. Check `profile-title` header (supports plain text or `base64:<data>`)
-    if let Some(val) = headers.get("profile-title") {
-        if let Ok(s) = val.to_str() {
-            let trimmed = s.trim();
-            if let Some(b64_part) = trimmed.strip_prefix("base64:") {
-                if let Ok(decoded) = xrat_support::decode::b64_decode_text(b64_part) {
-                    let decoded_trimmed = decoded.trim();
-                    if !decoded_trimmed.is_empty() {
-                        return Some(decoded_trimmed.to_string());
-                    }
+    if let Some(title) = headers
+        .get("profile-title")
+        .and_then(|value| value.to_str().ok())
+    {
+        let trimmed = title.trim();
+        if let Some(encoded) = trimmed.strip_prefix("base64:") {
+            if let Ok(decoded) = xrat_support::decode::b64_decode_text(encoded) {
+                let name = decoded.trim();
+                if !name.is_empty() {
+                    return Some(name.to_string());
                 }
-            } else if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
             }
+        } else if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
         }
     }
-
-    // 2. Check `content-disposition` header
-    if let Some(val) = headers.get("content-disposition") {
-        if let Ok(s) = val.to_str() {
-            if let Some(filename) = parse_content_disposition_filename(s) {
-                return Some(filename);
-            }
-        }
-    }
-
-    None
+    headers
+        .get("content-disposition")
+        .and_then(|value| value.to_str().ok())
+        .and_then(parse_content_disposition_filename)
 }
 
 /// Parses the filename from a Content-Disposition header, stripping extensions.
 pub fn parse_content_disposition_filename(header_val: &str) -> Option<String> {
+    let mut quoted = false;
+    let mut escaped = false;
+    let parameters = header_val.split(|character| {
+        if escaped {
+            escaped = false;
+        } else if quoted && character == '\\' {
+            escaped = true;
+        } else if character == '"' {
+            quoted = !quoted;
+        } else if character == ';' && !quoted {
+            return true;
+        }
+        false
+    });
     let mut plain_filename = None;
-    let mut ext_filename = None;
-
-    for part in header_val.split(';') {
-        let part = part.trim();
-        if let Some(val) = part.strip_prefix("filename*=") {
-            let val = val.trim().trim_matches('"');
-            let encoded = if let Some((_, rest)) = val.split_once("''") {
-                rest
-            } else {
-                val
-            };
-            let decoded = percent_encoding::percent_decode_str(encoded)
-                .decode_utf8_lossy()
-                .trim()
-                .to_string();
-            if !decoded.is_empty() {
-                ext_filename = Some(clean_filename(&decoded));
-            }
-        } else if let Some(val) = part.strip_prefix("filename=") {
-            let val = val.trim().trim_matches('"');
-            if !val.is_empty() {
-                plain_filename = Some(clean_filename(val));
-            }
+    let mut extended_filename = None;
+    for parameter in parameters.skip(1) {
+        let Some((key, value)) = parameter.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if !key.eq_ignore_ascii_case("filename") && !key.eq_ignore_ascii_case("filename*") {
+            continue;
+        }
+        let Some(value) = parameter_value(value.trim()) else {
+            continue;
+        };
+        if key.eq_ignore_ascii_case("filename*") {
+            extended_filename =
+                decode_extended_filename(&value).and_then(|name| clean_filename(&name));
+        } else {
+            plain_filename = clean_filename(&value);
         }
     }
-
-    ext_filename.or(plain_filename)
+    extended_filename.or(plain_filename)
 }
 
-fn clean_filename(filename: &str) -> String {
-    let name = filename.trim();
-    for ext in &[".yaml", ".yml", ".json", ".txt", ".conf", ".sub"] {
-        if let Some(stripped) = name.strip_suffix(ext) {
-            return stripped.trim().to_string();
+fn parameter_value(value: &str) -> Option<String> {
+    let Some(quoted) = value.strip_prefix('"') else {
+        return Some(value.to_string());
+    };
+    let mut characters = quoted.chars();
+    let mut decoded = String::new();
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' => decoded.push(characters.next()?),
+            '"' => return characters.next().is_none().then_some(decoded),
+            _ => decoded.push(character),
         }
     }
-    name.to_string()
+    None
+}
+
+fn decode_extended_filename(value: &str) -> Option<String> {
+    let mut parts = value.splitn(3, '\'');
+    let charset = parts.next()?;
+    let _language = parts.next()?;
+    let encoded = parts.next()?;
+    let bytes = percent_encoding::percent_decode_str(encoded).collect::<Vec<_>>();
+    if charset.eq_ignore_ascii_case("utf-8") {
+        String::from_utf8(bytes).ok()
+    } else if charset.eq_ignore_ascii_case("iso-8859-1") {
+        Some(bytes.into_iter().map(char::from).collect())
+    } else {
+        None
+    }
+}
+
+fn clean_filename(filename: &str) -> Option<String> {
+    let name = filename.trim();
+    let cleaned = match name.rsplit_once('.') {
+        Some((stem, extension))
+            if ["yaml", "yml", "json", "txt", "conf", "sub"]
+                .iter()
+                .any(|known| extension.eq_ignore_ascii_case(known)) =>
+        {
+            stem.trim()
+        }
+        _ => name,
+    };
+    (!cleaned.is_empty()).then(|| cleaned.to_string())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use xrat_support::http::{HeaderName, HeaderValue};
-
-    #[test]
-    fn detects_name_from_url_fragment() {
-        assert_eq!(
-            detect_subscription_name_from_url("https://example.com/api/sub#MyVPN"),
-            Some("MyVPN".to_string())
-        );
-
-        assert_eq!(
-            detect_subscription_name_from_url(
-                "https://example.com/sub#%D0%9C%D0%BE%D1%8F%20%D0%9F%D0%BE%D0%B4%D0%BF%D0%B8%D1%81%D0%BA%D0%B0"
-            ),
-            Some("Моя Подписка".to_string())
-        );
-
-        assert_eq!(
-            detect_subscription_name_from_url("https://example.com/sub#"),
-            None
-        );
-    }
-
-    #[test]
-    fn detects_name_from_url_query() {
-        assert_eq!(
-            detect_subscription_name_from_url("https://example.com/sub?token=123&name=FastVPN"),
-            Some("FastVPN".to_string())
-        );
-
-        assert_eq!(
-            detect_subscription_name_from_url("https://example.com/sub?title=Work%20VPN"),
-            Some("Work VPN".to_string())
-        );
-
-        assert_eq!(
-            detect_subscription_name_from_url("https://example.com/sub?token=123"),
-            None
-        );
-    }
-
-    #[test]
-    fn detects_name_from_profile_title_header() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            HeaderName::from_static("profile-title"),
-            HeaderValue::from_static("SuperProxy"),
-        );
-        assert_eq!(
-            extract_subscription_name_from_headers(&headers),
-            Some("SuperProxy".to_string())
-        );
-
-        // Base64 encoded UTF-8
-        let mut b64_headers = HeaderMap::new();
-        b64_headers.insert(
-            HeaderName::from_static("profile-title"),
-            HeaderValue::from_static("base64:0JzQvtGPINCf0L7QtNC/0LjRgdC60LA="),
-        );
-        assert_eq!(
-            extract_subscription_name_from_headers(&b64_headers),
-            Some("Моя Подписка".to_string())
-        );
-    }
-
-    #[test]
-    fn detects_name_from_content_disposition_header() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            HeaderName::from_static("content-disposition"),
-            HeaderValue::from_static("attachment; filename=\"MyCluster.yaml\""),
-        );
-        assert_eq!(
-            extract_subscription_name_from_headers(&headers),
-            Some("MyCluster".to_string())
-        );
-
-        let mut utf8_headers = HeaderMap::new();
-        utf8_headers.insert(
-            HeaderName::from_static("content-disposition"),
-            HeaderValue::from_static(
-                "attachment; filename*=UTF-8''%D0%9F%D0%BE%D0%B4%D0%BF%D0%B8%D1%81%D0%BA%D0%B0.yml",
-            ),
-        );
-        assert_eq!(
-            extract_subscription_name_from_headers(&utf8_headers),
-            Some("Подписка".to_string())
-        );
-    }
-
-    #[test]
-    fn header_takes_precedence_over_url_fragment() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            HeaderName::from_static("profile-title"),
-            HeaderValue::from_static("ServerTitle"),
-        );
-        let name = detect_subscription_name("https://example.com/sub#UrlFragment", Some(&headers));
-        assert_eq!(name, Some("ServerTitle".to_string()));
-    }
-}
+mod tests;
