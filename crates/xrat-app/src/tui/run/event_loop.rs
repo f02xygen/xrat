@@ -157,6 +157,9 @@ pub async fn run(context: &AppContext) -> crate::app::Result<()> {
                         continue;
                     }
                     let bulk_confirm_open = app.pending_bulk.is_some();
+                    if super::input::apply_key_text(&mut app, &key) {
+                        continue;
+                    }
                     let action = if let Some(split_modal) = &app.split_modal {
                         crate::tui::keymap::action_for_split_modal_key(key, split_modal.mode())
                     } else {

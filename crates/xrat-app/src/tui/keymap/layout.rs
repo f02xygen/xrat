@@ -1,13 +1,14 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// A terminal key event with optional layout-independent physical key information.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TuiKeyEvent {
     pub code: KeyCode,
     pub modifiers: KeyModifiers,
     /// Base-layout key reported by modern terminal protocols (such as Kitty keyboard protocol).
     /// Represents the code point this physical key would produce on a standard US QWERTY base layout.
     pub base_layout_key: Option<char>,
+    pub text: Option<String>,
 }
 
 impl TuiKeyEvent {
@@ -17,6 +18,7 @@ impl TuiKeyEvent {
             code,
             modifiers,
             base_layout_key: None,
+            text: None,
         }
     }
 
@@ -34,10 +36,18 @@ impl TuiKeyEvent {
     ///   independently of the active layout (Cyrillic, Persian, Arabic, CJK, AZERTY, etc.).
     /// - In text input mode: preserves the typed character for input, but normalizes `Control`
     ///   modifier shortcuts (`Ctrl+C`, `Ctrl+O`, `Ctrl+W`, `Ctrl+U`, `Ctrl+S`).
-    pub fn normalize(self, is_text_input: bool) -> KeyEvent {
-        let code = if let Some(base) = self.base_layout_key {
+    pub fn normalize(&self, is_text_input: bool) -> KeyEvent {
+        let code = if let (KeyCode::Char(_), Some(base)) = (self.code, self.base_layout_key) {
             if !is_text_input || self.modifiers.contains(KeyModifiers::CONTROL) {
-                KeyCode::Char(base)
+                KeyCode::Char(
+                    if self.modifiers.contains(KeyModifiers::SHIFT)
+                        && !self.modifiers.contains(KeyModifiers::CONTROL)
+                    {
+                        shifted_us_key(base)
+                    } else {
+                        base
+                    },
+                )
             } else {
                 self.code
             }
@@ -55,6 +65,7 @@ impl From<KeyEvent> for TuiKeyEvent {
             code: key.code,
             modifiers: key.modifiers,
             base_layout_key: None,
+            text: None,
         }
     }
 }
@@ -77,7 +88,22 @@ impl From<&qwertty::event::KeyEvent> for TuiKeyEvent {
         }
 
         let code = match ev.key() {
-            qwertty::Key::Char(c) => KeyCode::Char(c),
+            qwertty::Key::Char(character) => KeyCode::Char(
+                ev.text()
+                    .and_then(|text| {
+                        let mut characters = text.as_str().chars();
+                        let first = characters.next()?;
+                        characters.next().is_none().then_some(first)
+                    })
+                    .unwrap_or_else(|| {
+                        if modifiers.contains(KeyModifiers::SHIFT) {
+                            ev.shifted_key()
+                                .unwrap_or_else(|| shifted_us_key(character))
+                        } else {
+                            character
+                        }
+                    }),
+            ),
             qwertty::Key::Up => KeyCode::Up,
             qwertty::Key::Down => KeyCode::Down,
             qwertty::Key::Left => KeyCode::Left,
@@ -113,6 +139,35 @@ impl From<&qwertty::event::KeyEvent> for TuiKeyEvent {
             code,
             modifiers,
             base_layout_key: ev.base_layout_key(),
+            text: ev.text().map(|text| text.as_str().to_string()),
         }
+    }
+}
+
+fn shifted_us_key(character: char) -> char {
+    match character {
+        'a'..='z' => character.to_ascii_uppercase(),
+        '`' => '~',
+        '1' => '!',
+        '2' => '@',
+        '3' => '#',
+        '4' => '$',
+        '5' => '%',
+        '6' => '^',
+        '7' => '&',
+        '8' => '*',
+        '9' => '(',
+        '0' => ')',
+        '-' => '_',
+        '=' => '+',
+        '[' => '{',
+        ']' => '}',
+        '\\' => '|',
+        ';' => ':',
+        '\'' => '"',
+        ',' => '<',
+        '.' => '>',
+        '/' => '?',
+        _ => character,
     }
 }

@@ -23,6 +23,15 @@ testing, and runtime services. It does not keep a separate copy of business
 logic: config changes, imports, tests, and runtime operations use the same app
 services as the CLI commands.
 
+Runtime and TUN indicators refresh in the background, including changes made by
+the CLI or daemon. A failed poll is retried on the next polling cycle.
+
+On Unix terminals that report Kitty base-layout keys, command shortcuts follow
+physical US QWERTY positions across keyboard layouts, including shifted commands
+such as `U`, `K`, and `?`. Text fields preserve the characters you type. Other
+terminals use their normal character bindings; standalone Escape and ordinary
+text input remain available.
+
 ## Release notes after upgrading
 
 After a successful release upgrade, xrat caches the installed release's notes in

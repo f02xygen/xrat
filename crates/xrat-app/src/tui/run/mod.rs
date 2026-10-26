@@ -1,3 +1,4 @@
+mod input;
 mod tasks;
 mod terminal;
 #[cfg(test)]
