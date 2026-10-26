@@ -8,6 +8,7 @@ use xrat_model::Node;
 use xrat_support::decode::decode_or_raw_text;
 use xrat_support::url::looks_like_url;
 
+pub(crate) mod naming;
 mod subscription;
 pub use subscription::import_subscription;
 pub(crate) use subscription::{load_subscription_input, parse_request_headers};
@@ -35,15 +36,22 @@ pub async fn persist_nodes(
     name: Option<&str>,
     headers: Option<&std::collections::BTreeMap<String, String>>,
 ) -> crate::app::Result<ImportSummary> {
-    if let Some(name) = name {
-        source.name = Some(name.to_string());
+    let effective_name = match name {
+        Some(n) if !n.is_empty() && (!n.starts_with("sub-") || source.name.is_none()) => {
+            Some(n.to_string())
+        }
+        _ => source.name.clone().or_else(|| name.map(str::to_owned)),
+    };
+
+    if let Some(n) = &effective_name {
+        source.name = Some(n.clone());
     }
     let summary = database
         .import_nodes_with_headers(&source, nodes, headers)
         .await?;
-    if let Some(name) = name {
+    if let Some(n) = &effective_name {
         database
-            .set_subscription_name(summary.subscription_id, name)
+            .set_subscription_name(summary.subscription_id, n)
             .await?;
     }
     Ok(summary)

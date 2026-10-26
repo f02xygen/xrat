@@ -62,6 +62,62 @@ fn blank_subscription_name_uses_generated_suggestion() {
 }
 
 #[test]
+fn subscription_url_with_fragment_extracts_name_in_modal() {
+    let mut app = app_with_import_input("https://example.com/sub#MyProvider");
+    assert!(prepare_import_submission(&mut app).is_none());
+
+    let modal = app.import_modal.as_ref().expect("modal should remain open");
+    let ImportModalStep::SubscriptionName {
+        url,
+        suggested_name,
+    } = &modal.step
+    else {
+        panic!("subscription name step should be active");
+    };
+    assert_eq!(url, "https://example.com/sub#MyProvider");
+    assert_eq!(suggested_name, "MyProvider");
+
+    // With blank input, it should use the extracted fragment name
+    let Some(tasks::TuiImport::Subscription { name, .. }) = prepare_import_submission(&mut app)
+    else {
+        panic!("subscription import should be prepared");
+    };
+    assert_eq!(name, "MyProvider");
+}
+
+#[test]
+fn subscription_url_with_encoded_cyrillic_fragment_extracts_name() {
+    let mut app = app_with_import_input(
+        "https://example.com/sub#%D0%9C%D0%BE%D1%8F%20%D0%9F%D0%BE%D0%B4%D0%BF%D0%B8%D1%81%D0%BA%D0%B0",
+    );
+    assert!(prepare_import_submission(&mut app).is_none());
+
+    let modal = app.import_modal.as_ref().expect("modal should remain open");
+    let ImportModalStep::SubscriptionName { suggested_name, .. } = &modal.step else {
+        panic!("subscription name step should be active");
+    };
+    assert_eq!(suggested_name, "Моя Подписка");
+
+    let Some(tasks::TuiImport::Subscription { name, .. }) = prepare_import_submission(&mut app)
+    else {
+        panic!("subscription import should be prepared");
+    };
+    assert_eq!(name, "Моя Подписка");
+}
+
+#[test]
+fn subscription_url_with_query_name_extracts_name() {
+    let mut app = app_with_import_input("https://example.com/sub?token=abc&name=FastVPN");
+    assert!(prepare_import_submission(&mut app).is_none());
+
+    let modal = app.import_modal.as_ref().expect("modal should remain open");
+    let ImportModalStep::SubscriptionName { suggested_name, .. } = &modal.step else {
+        panic!("subscription name step should be active");
+    };
+    assert_eq!(suggested_name, "FastVPN");
+}
+
+#[test]
 fn invalid_or_multi_link_input_stays_in_modal_with_error() {
     for input in [
         "not a link",

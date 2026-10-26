@@ -51,13 +51,16 @@ pub async fn read_input_async_with_headers(
 ) -> crate::app::Result<(ImportSource, Vec<u8>)> {
     ensure_acquisition_allowed()?;
     if looks_like_url(input) {
+        let (resp_headers, bytes) =
+            fetch_url_response_async_with_headers(input, client, headers).await?;
+        let name = crate::app::import::naming::detect_subscription_name(input, Some(&resp_headers));
         return Ok((
             ImportSource {
                 kind: SourceKind::Url,
                 value: input.to_string(),
-                name: None,
+                name,
             },
-            fetch_url_async_with_headers(input, client, headers).await?,
+            bytes,
         ));
     }
 
@@ -97,6 +100,16 @@ async fn fetch_url_async_with_headers(
     client: &xrat_support::http::Client,
     headers: xrat_support::http::HeaderMap,
 ) -> crate::app::Result<Vec<u8>> {
+    fetch_url_response_async_with_headers(url, client, headers)
+        .await
+        .map(|(_, bytes)| bytes)
+}
+
+pub async fn fetch_url_response_async_with_headers(
+    url: &str,
+    client: &xrat_support::http::Client,
+    headers: xrat_support::http::HeaderMap,
+) -> crate::app::Result<(xrat_support::http::HeaderMap, Vec<u8>)> {
     ensure_acquisition_allowed()?;
     let response = client
         .get(url)
@@ -106,7 +119,9 @@ async fn fetch_url_async_with_headers(
         .map_err(safe_input_error)?
         .error_for_status()
         .map_err(safe_input_error)?;
-    Ok(response.bytes().await.map_err(safe_input_error)?.to_vec())
+    let resp_headers = response.headers().clone();
+    let bytes = response.bytes().await.map_err(safe_input_error)?.to_vec();
+    Ok((resp_headers, bytes))
 }
 
 fn safe_input_error(error: xrat_support::http::HttpError) -> crate::app::AppError {

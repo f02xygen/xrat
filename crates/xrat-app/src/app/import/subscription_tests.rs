@@ -249,3 +249,39 @@ async fn url_list_rejects_remote_inputs_and_invalid_entries_before_fetching() {
     .unwrap();
     assert!(super::load_url_list(path.to_str().unwrap()).await.is_err());
 }
+
+#[tokio::test]
+async fn import_subscription_automatically_detects_name_from_profile_title_header() {
+    let (context, _root) = crate::app::tests::TestAppBuilder::new("sub-name-header")
+        .build_with_root()
+        .await;
+    let resp = response(
+        "200 OK",
+        "Profile-Title: ServerProvider\r\n",
+        "vless://uuid-123@example.com:443#One",
+    );
+    let (url, _requests) = server(vec![resp]).await;
+    import_subscription(&context.db, &url, None, &BTreeMap::new())
+        .await
+        .unwrap();
+
+    let stored = context.db.list_subscriptions().await.unwrap();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].name.as_deref(), Some("ServerProvider"));
+}
+
+#[tokio::test]
+async fn import_subscription_automatically_detects_name_from_url_fragment() {
+    let (context, _root) = crate::app::tests::TestAppBuilder::new("sub-name-fragment")
+        .build_with_root()
+        .await;
+    let (url, _requests) = server(vec![nodes_response()]).await;
+    let url_with_frag = format!("{url}#CustomFragmentName");
+    import_subscription(&context.db, &url_with_frag, None, &BTreeMap::new())
+        .await
+        .unwrap();
+
+    let stored = context.db.list_subscriptions().await.unwrap();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].name.as_deref(), Some("CustomFragmentName"));
+}

@@ -739,8 +739,12 @@ pub(super) fn prepare_import_submission(app: &mut TuiApp) -> Option<tasks::TuiIm
                     set_import_error(app, "invalid HTTP(S) subscription URL");
                     return None;
                 }
-                let random_ref = xrat_support::refs::generate_ref();
-                let suggested_name = format!("sub-{}", &random_ref[..6]);
+                let suggested_name =
+                    crate::app::import::naming::detect_subscription_name_from_url(&input)
+                        .unwrap_or_else(|| {
+                            let random_ref = xrat_support::refs::generate_ref();
+                            format!("sub-{}", &random_ref[..6])
+                        });
                 app.import_modal = Some(crate::tui::app::ImportModalState {
                     step: ImportModalStep::SubscriptionName {
                         url: input,

@@ -71,8 +71,16 @@ async fn run_import(context: &AppContext, import: TuiImport) -> crate::app::Resu
                 &Default::default(),
             )
             .await?;
+            let display_name = context
+                .db
+                .get_subscription_by_id(summary.subscription_id)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|s| s.name)
+                .unwrap_or(name);
             Ok(format!(
-                "imported {} configs into {name}",
+                "imported {} configs into {display_name}",
                 summary.imported_configs
             ))
         }
