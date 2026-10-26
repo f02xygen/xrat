@@ -18,7 +18,7 @@ pub fn render_import_modal(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
         ),
         ImportModalStep::SubscriptionName { suggested_name, .. } => (
             " Name subscription ",
-            "Enter a name, or leave blank to use the suggestion.",
+            "Enter a name, or leave blank to detect it from the subscription.",
             suggested_name.as_str(),
             "import",
         ),

@@ -13,7 +13,8 @@ pub enum TuiImport {
     },
     Subscription {
         url: String,
-        name: String,
+        name: Option<String>,
+        fallback_name: String,
     },
 }
 
@@ -63,22 +64,27 @@ async fn run_import(context: &AppContext, import: TuiImport) -> crate::app::Resu
             .await?;
             Ok("added 1 config".to_string())
         }
-        TuiImport::Subscription { url, name } => {
-            let summary = crate::app::services::catalog_import::subscription(
+        TuiImport::Subscription {
+            url,
+            name,
+            fallback_name,
+        } => {
+            let summary = crate::app::services::catalog_import::subscription_with_fallback(
                 context,
                 &url,
-                Some(&name),
+                name.as_deref(),
+                Some(&fallback_name),
                 &Default::default(),
             )
             .await?;
             let display_name = context
-                .db
-                .get_subscription_by_id(summary.subscription_id)
+                .services()
+                .lifecycle
+                .subscription(&summary.subscription_id.to_string())
                 .await
                 .ok()
-                .flatten()
                 .and_then(|s| s.name)
-                .unwrap_or(name);
+                .unwrap_or_else(|| name.unwrap_or(fallback_name));
             Ok(format!(
                 "imported {} configs into {display_name}",
                 summary.imported_configs

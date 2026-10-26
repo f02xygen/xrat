@@ -46,7 +46,10 @@ pub fn action_for_key_with_import(
     let is_text_input = editing_search
         || rename_modal_open
         || import_modal_open
-        || matches!(settings_mode, Some(SettingsMode::Search | SettingsMode::Edit));
+        || matches!(
+            settings_mode,
+            Some(SettingsMode::Search | SettingsMode::Edit)
+        );
     let key = key.normalize(is_text_input);
 
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {

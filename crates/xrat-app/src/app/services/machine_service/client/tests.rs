@@ -731,3 +731,33 @@ async fn machine_probe_client_preserves_job_identity_and_optional_status_over_th
 }
 
 mod probes;
+
+#[tokio::test]
+async fn machine_import_naming_preserves_fallback_explicit_names_and_refresh() {
+    let (context, client, _calls, _root) = fixture(None).await;
+    let (url, server) = crate::app::tests::fixtures::named_subscription_url(3).await;
+    let summary = client
+        .import_subscription_with_fallback(&url, None, Some("UrlProvider"), &BTreeMap::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        context
+            .db
+            .get_subscription_by_id(summary.subscription_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .name
+            .as_deref(),
+        Some("ServerProvider")
+    );
+    client
+        .import_subscription(&url, Some("sub-work"), &BTreeMap::new())
+        .await
+        .unwrap();
+    client.refresh_subscriptions(&[]).await.unwrap();
+    let stored = context.db.list_subscriptions().await.unwrap();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].name.as_deref(), Some("sub-work"));
+    server.await.unwrap();
+}

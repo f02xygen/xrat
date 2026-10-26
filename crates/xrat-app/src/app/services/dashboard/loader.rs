@@ -92,40 +92,12 @@ impl<'a> DashboardService<'a> {
         let pending_enrichment =
             geo::apply_geo_cache(context, &mut configs, self.clock.as_ref()).await;
         let sources = services.configs.subscriptions().await?;
-        let projection = super::runtime::load(context).await?;
+        let projection = self.load_runtime().await?;
         let runtime = projection.runtime;
-        let tun_state = projection.tun;
-        let split_summary = crate::app::services::tun_control::split_summary(&tun_state);
-        let tun_active = tun_state.active;
-        let tun_label = if tun_state.active {
-            Some(format!(
-                "{} ({}) · {split_summary}",
-                tun_state.interface.as_deref().unwrap_or("tun"),
-                tun_state.engine,
-            ))
-        } else if tun_state.enabled {
-            Some(format!("enabled (inactive) · {split_summary}"))
-        } else if tun_state.split_mode != "all"
-            || tun_state.blacklist_count > 0
-            || tun_state.whitelist_count > 0
-        {
-            Some(format!("off · {split_summary}"))
-        } else {
-            None
-        };
+        let tun_label = projection.tun_label;
+        let tun_active = projection.tun_active;
+        let local_address = projection.local_address;
         let server = &context.app_config.server;
-        let needs_local_address = matches!(server.host.as_str(), "0.0.0.0" | "::")
-            || [
-                &runtime.inbound_health.socks,
-                &runtime.inbound_health.http,
-                &runtime.inbound_health.shadowsocks,
-            ]
-            .into_iter()
-            .flatten()
-            .any(|health| matches!(health.endpoint.host.as_str(), "0.0.0.0" | "::"));
-        let local_address = needs_local_address
-            .then(|| self.local_ip.primary_ip().map(|ip| ip.to_string()))
-            .flatten();
         let diagnostics =
             crate::app::services::diagnostics::DiagnosticsService::new(context.clone());
         let latest_run = diagnostics.latest_probe_run().await?;

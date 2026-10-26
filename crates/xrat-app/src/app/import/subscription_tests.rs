@@ -285,3 +285,76 @@ async fn import_subscription_automatically_detects_name_from_url_fragment() {
     assert_eq!(stored.len(), 1);
     assert_eq!(stored[0].name.as_deref(), Some("CustomFragmentName"));
 }
+
+#[tokio::test]
+async fn explicit_names_override_detected_metadata_including_sub_prefix() {
+    let (context, _root) = crate::app::tests::TestAppBuilder::new("subscription-explicit-name")
+        .build_with_root()
+        .await;
+    let (url, server) = crate::app::tests::fixtures::named_subscription_url(2).await;
+    for name in ["sub-work", "My work VPN"] {
+        let cli = Cli::parse_from(["xrat", "import", &url, "--name", name]);
+        commands::run(&context, &cli.command).await.unwrap();
+        let stored = context.db.list_subscriptions().await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].name.as_deref(), Some(name));
+    }
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn all_refresh_paths_preserve_renamed_subscription_metadata() {
+    let (context, _root) = crate::app::tests::TestAppBuilder::new("subscription-refresh-name")
+        .build_with_root()
+        .await;
+    std::fs::write(&context.runtime_paths.config_path, "").unwrap();
+    let (url, server) = crate::app::tests::fixtures::named_subscription_url(4).await;
+    let cli = Cli::parse_from(["xrat", "import", &url]);
+    commands::run(&context, &cli.command).await.unwrap();
+    let original = context.db.list_subscriptions().await.unwrap().remove(0);
+    assert_eq!(original.name.as_deref(), Some("ServerProvider"));
+    context
+        .db
+        .set_subscription_name(original.id, "My work VPN")
+        .await
+        .unwrap();
+    commands::update::update_all(&context).await.unwrap();
+    assert_eq!(
+        context
+            .db
+            .get_subscription_by_id(original.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .name
+            .as_deref(),
+        Some("My work VPN")
+    );
+    subscription_refresh::refresh_all(&context).await;
+    assert_eq!(
+        context
+            .db
+            .get_subscription_by_id(original.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .name
+            .as_deref(),
+        Some("My work VPN")
+    );
+    crate::app::services::web_management::execute(
+        &context,
+        xrat_web::types::Action::Refresh {
+            id: Some(original.id.0),
+        },
+        &Default::default(),
+        "refresh-name",
+    )
+    .await
+    .unwrap();
+    let stored = context.db.list_subscriptions().await.unwrap();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].id, original.id);
+    assert_eq!(stored[0].name.as_deref(), Some("My work VPN"));
+    server.await.unwrap();
+}

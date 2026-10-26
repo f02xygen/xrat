@@ -223,3 +223,69 @@ fn qwertty_kitty_sequence_conversion_test() {
     let text_norm = tui_event.normalize(true);
     assert_eq!(text_norm.code, KeyCode::Char('щ'));
 }
+
+fn decoded_key(sequence: &[u8]) -> TuiKeyEvent {
+    let mut decoder = qwertty::SemanticDecoder::new();
+    let events = decoder.feed(sequence);
+    match &events[0] {
+        qwertty::Event::Key(key) => TuiKeyEvent::from(key),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn kitty_shifted_physical_keys_keep_their_existing_commands() {
+    for (sequence, expected) in [
+        (b"\x1b[117:85:117;2u".as_slice(), TuiAction::ToggleTun),
+        (b"\x1b[107:75:107;2u".as_slice(), TuiAction::RuntimeStop),
+        (b"\x1b[47:63:47;2u".as_slice(), TuiAction::ShowHelp),
+        (b"\x1b[1043:1043:117;2u".as_slice(), TuiAction::ToggleTun),
+    ] {
+        let mut pending = None;
+        assert_eq!(
+            action_for_key_with_import(
+                decoded_key(sequence),
+                TuiView::Configs,
+                TuiPanel::Table,
+                &mut pending,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                None
+            ),
+            expected
+        );
+    }
+}
+
+#[test]
+fn kitty_shifted_text_preserves_case_punctuation_and_unicode() {
+    for (sequence, expected) in [
+        (b"\x1b[117:85:117;2u".as_slice(), 'U'),
+        (b"\x1b[47:63:47;2u".as_slice(), '?'),
+        (b"\x1b[1075:1043:117;2u".as_slice(), 'Г'),
+        (b"\x1b[97;1;233u".as_slice(), 'é'),
+    ] {
+        let key = decoded_key(sequence);
+        let mut pending = None;
+        assert_eq!(
+            action_for_key_with_import(
+                key,
+                TuiView::Configs,
+                TuiPanel::Table,
+                &mut pending,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                None
+            ),
+            TuiAction::SearchInput(expected)
+        );
+    }
+}

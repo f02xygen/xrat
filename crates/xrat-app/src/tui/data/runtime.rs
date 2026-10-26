@@ -3,6 +3,15 @@ use crate::app::runtime_service::{
 };
 use xrat_db::ConfigRecord;
 
+impl From<crate::app::services::dashboard::DashboardRuntimeSnapshot> for TuiRuntimeStatus {
+    fn from(value: crate::app::services::dashboard::DashboardRuntimeSnapshot) -> Self {
+        let mut runtime = Self::from_snapshot(value.runtime, value.local_address.as_deref());
+        runtime.tun = value.tun_label;
+        runtime.tun_active = value.tun_active;
+        runtime
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TuiRuntimeStatus {
     pub status: String,

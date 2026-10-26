@@ -39,3 +39,32 @@ pub fn test_node_with(address: &str, name: &str) -> Node {
         ),
     }
 }
+
+pub async fn named_subscription_url(request_count: usize) -> (String, tokio::task::JoinHandle<()>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!(
+        "http://{}/subscription#UrlProvider",
+        listener.local_addr().unwrap()
+    );
+    let task = tokio::spawn(async move {
+        let body = "vless://uuid-123@example.com:443#One";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nProfile-Title: ServerProvider\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        for _ in 0..request_count {
+            let (mut socket, _) =
+                tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(socket.read_u8().await.unwrap());
+            }
+            socket.write_all(response.as_bytes()).await.unwrap();
+        }
+    });
+    (url, task)
+}

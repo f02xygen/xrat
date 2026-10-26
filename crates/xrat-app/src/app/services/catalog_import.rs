@@ -51,9 +51,22 @@ pub(crate) async fn subscription(
     name: Option<&str>,
     headers: &BTreeMap<String, String>,
 ) -> Result<ImportSummary> {
+    subscription_with_fallback(context, input, name, None, headers).await
+}
+
+pub(crate) async fn subscription_with_fallback(
+    context: &AppContext,
+    input: &str,
+    name: Option<&str>,
+    fallback_name: Option<&str>,
+    headers: &BTreeMap<String, String>,
+) -> Result<ImportSummary> {
     #[cfg(any(windows, test))]
     if let Some(client) = &context.machine_client {
-        return client.import_subscription(input, name, headers).await;
+        return client
+            .import_subscription_with_fallback(input, name, fallback_name, headers)
+            .await;
     }
-    import::import_subscription(&context.db, input, name, headers).await
+    import::import_subscription_with_fallback(&context.db, input, name, fallback_name, headers)
+        .await
 }

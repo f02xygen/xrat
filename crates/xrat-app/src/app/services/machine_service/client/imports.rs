@@ -18,7 +18,19 @@ impl MachineClient {
         name: Option<&str>,
         headers: &BTreeMap<String, String>,
     ) -> Result<ImportSummary> {
-        let (source, bytes) = import::load_subscription_input(input, headers).await?;
+        self.import_subscription_with_fallback(input, name, None, headers)
+            .await
+    }
+
+    pub(crate) async fn import_subscription_with_fallback(
+        &self,
+        input: &str,
+        name: Option<&str>,
+        fallback_name: Option<&str>,
+        headers: &BTreeMap<String, String>,
+    ) -> Result<ImportSummary> {
+        let (mut source, bytes) = import::load_subscription_input(input, headers).await?;
+        source.name = source.name.or_else(|| fallback_name.map(str::to_owned));
         self.import_result(CatalogRequest::Import {
             contents: vec![body(&bytes)?],
             source,

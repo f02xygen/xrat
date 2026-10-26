@@ -7,6 +7,7 @@ mod runtime;
 pub use enrichment::enrich_locations;
 pub use geo::build_geo_lookup;
 pub use logs::{DashboardEvent, DashboardLogs};
+pub(crate) use runtime::DashboardRuntimeSnapshot;
 
 use crate::app::context::AppContext;
 use crate::app::ports::{Clock, SystemClock};
