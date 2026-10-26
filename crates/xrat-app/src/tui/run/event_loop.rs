@@ -24,7 +24,7 @@ pub async fn run(context: &AppContext) -> crate::app::Result<()> {
     let (engines_tx, mut engines_rx) = mpsc::unbounded_channel();
     let (stats_tx, mut stats_rx) = mpsc::unbounded_channel();
     let (runtime_tx, mut runtime_rx) =
-        mpsc::unbounded_channel::<crate::tui::data::TuiRuntimeStatus>();
+        mpsc::unbounded_channel::<crate::app::Result<crate::tui::data::TuiRuntimeStatus>>();
     tasks::spawn_version_check(version_tx);
     tasks::spawn_probe_engines(context.clone(), &engines_tx);
     let mut geo_lookup = crate::app::services::dashboard::build_geo_lookup(
@@ -61,12 +61,20 @@ pub async fn run(context: &AppContext) -> crate::app::Result<()> {
                 &task_tx,
             );
         }
-        while let Ok(runtime_status) = runtime_rx.try_recv() {
+        while let Ok(result) = runtime_rx.try_recv() {
             runtime_poll_pending = false;
-            if app.data.runtime != runtime_status {
-                let _ = crate::app::services::tun_control::reload(&mut context);
-                app.data.runtime = runtime_status;
-                needs_redraw = true;
+            match result {
+                Ok(runtime_status) if app.data.runtime != runtime_status => {
+                    if !context.is_machine_client()
+                        && let Err(error) = crate::app::services::tun_control::reload(&mut context)
+                    {
+                        tracing::debug!(%error, "TUI runtime settings reload failed");
+                    }
+                    app.data.runtime = runtime_status;
+                    needs_redraw = true;
+                }
+                Ok(_) => {}
+                Err(error) => tracing::debug!(%error, "TUI runtime poll failed"),
             }
         }
         if !runtime_poll_pending && last_runtime_poll.elapsed() >= Duration::from_secs(1) {
