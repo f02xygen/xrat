@@ -6,9 +6,24 @@ use crate::cli::{ConnectArgs, DisconnectArgs, StatusArgs};
 use xrat_model::ConfigRef;
 
 pub(super) async fn connect(client: &MachineClient, args: &ConnectArgs) -> Result<()> {
-    let id = client
-        .resolve_config(&ConfigRef::from(args.id.as_str()))
-        .await?;
+    let target = args.id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let id = match target {
+        Some(target) if !target.eq_ignore_ascii_case("latest") => {
+            client.resolve_config(&ConfigRef::from(target)).await?
+        }
+        _ => {
+            let overview = client.overview().await?;
+            overview
+                .runtime
+                .session
+                .and_then(|session| session.config_id)
+                .ok_or_else(|| {
+                    crate::app::AppError::InvalidArgument(
+                        "no previous connection found; provide a config ID (e.g. 'xrat connect <id>')".into()
+                    )
+                })?
+        }
+    };
     let control = MachineRuntimeControl::new(client.clone());
     let progress = CliProgress::spinner(!args.json, format!("connecting config {id}"));
     let result = control.connect(id).await;

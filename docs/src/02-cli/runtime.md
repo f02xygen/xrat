@@ -10,14 +10,14 @@ check status.
 Start a managed proxy runtime for a stored config.
 
 ```bash
-xrat connect <ref> [flags]
+xrat connect [ref] [flags]
 ```
 
 ### Arguments
 
-| Argument | Description                                      |
-| -------- | ------------------------------------------------ |
-| `ref`    | Config ref prefix to start as the active session |
+| Argument | Description                                                                                                   |
+| -------- | ------------------------------------------------------------------------------------------------------------- |
+| `ref`    | Config ref prefix, ID, or `latest` to start as the active session. Defaults to the last connected config if omitted |
 
 ### Flags
 
