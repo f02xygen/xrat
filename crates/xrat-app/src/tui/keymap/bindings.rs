@@ -30,7 +30,7 @@ pub fn action_for_key(
 
 #[allow(clippy::too_many_arguments)]
 pub fn action_for_key_with_import(
-    key: KeyEvent,
+    key: impl Into<TuiKeyEvent>,
     active_view: TuiView,
     focused_panel: TuiPanel,
     pending_chord: &mut Option<char>,
@@ -42,6 +42,13 @@ pub fn action_for_key_with_import(
     qr_modal_open: bool,
     settings_mode: Option<SettingsMode>,
 ) -> TuiAction {
+    let key: TuiKeyEvent = key.into();
+    let is_text_input = editing_search
+        || rename_modal_open
+        || import_modal_open
+        || matches!(settings_mode, Some(SettingsMode::Search | SettingsMode::Edit));
+    let key = key.normalize(is_text_input);
+
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         return TuiAction::Quit;
     }
@@ -169,7 +176,11 @@ pub(super) fn action_for_rename_modal_key(key: KeyEvent) -> TuiAction {
     }
 }
 
-pub fn action_for_split_modal_key(key: KeyEvent, mode: SplitModalMode) -> TuiAction {
+pub fn action_for_split_modal_key(key: impl Into<TuiKeyEvent>, mode: SplitModalMode) -> TuiAction {
+    let key: TuiKeyEvent = key.into();
+    let is_text_input = matches!(mode, SplitModalMode::AddInput | SplitModalMode::Search);
+    let key = key.normalize(is_text_input);
+
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         return TuiAction::Quit;
     }

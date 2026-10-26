@@ -9,7 +9,6 @@ pub(crate) use tasks::test_run_request_for_app;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-use crossterm::event::{self, Event};
 use tokio::sync::mpsc;
 
 use crate::app::config::{ConfigEditSession, SettingEffect};

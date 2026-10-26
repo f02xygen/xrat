@@ -130,15 +130,15 @@ pub async fn run(context: &AppContext) -> crate::app::Result<()> {
             break;
         }
 
-        if event::poll(Duration::from_millis(100))? {
+        if let Some(ev) = terminal.poll_event(Duration::from_millis(100))? {
             needs_redraw = true;
-            match event::read()? {
-                Event::Resize(_, _) => {
+            match ev {
+                terminal::TuiEvent::Resize(_, _) => {
                     app.needs_full_clear = true;
                 }
-                Event::Key(key) => {
+                terminal::TuiEvent::Key(key) => {
                     if let Some(modal) = &mut release_notes {
-                        if modal.handle_key(key) {
+                        if modal.handle_key(key.normalize(false)) {
                             dismiss_release_notes(
                                 &mut app,
                                 &mut release_notes,
@@ -684,14 +684,13 @@ pub async fn run(context: &AppContext) -> crate::app::Result<()> {
                         );
                     }
                 }
-                Event::Paste(text) => {
+                terminal::TuiEvent::Paste(text) => {
                     if app.settings_modal.is_some() {
                         app.append_settings_text(&text);
                     } else {
                         app.append_import_text(&text);
                     }
                 }
-                _ => {}
             }
         }
     }

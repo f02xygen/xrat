@@ -1,6 +1,8 @@
 mod chord;
 pub use chord::{chord_entries, chord_title};
 mod confirm;
+pub mod layout;
+pub use layout::TuiKeyEvent;
 mod search;
 #[cfg(test)]
 mod tests;
