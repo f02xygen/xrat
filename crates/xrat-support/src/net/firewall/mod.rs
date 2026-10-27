@@ -1,4 +1,5 @@
 use std::io;
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};

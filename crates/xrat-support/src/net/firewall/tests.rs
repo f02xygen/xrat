@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(target_os = "linux")]
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 #[test]
