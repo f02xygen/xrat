@@ -14,7 +14,8 @@ pub mod nftables;
 #[cfg(test)]
 mod tests;
 
-pub fn find_in_path(binary: &str) -> Option<PathBuf> {
+#[cfg(target_os = "linux")]
+pub(crate) fn find_in_path(binary: &str) -> Option<PathBuf> {
     let search_path = std::env::var_os("PATH")?;
     std::env::split_paths(&search_path)
         .map(|directory| directory.join(binary))
@@ -65,16 +66,19 @@ impl FirewallOps for SystemFirewallOps {
         #[cfg(target_os = "linux")]
         {
             let mut err = None;
-            if nftables::is_available()
-                && let Err(e) = nftables::remove()
-            {
-                err = Some(e);
+            #[allow(clippy::collapsible_if)]
+            if nftables::is_available() {
+                if let Err(e) = nftables::remove() {
+                    err = Some(e);
+                }
             }
-            if iptables::is_available()
-                && let Err(e) = iptables::remove()
-                && err.is_none()
-            {
-                err = Some(e);
+            #[allow(clippy::collapsible_if)]
+            if iptables::is_available() {
+                if let Err(e) = iptables::remove() {
+                    if err.is_none() {
+                        err = Some(e);
+                    }
+                }
             }
             match err {
                 Some(e) => Err(e),

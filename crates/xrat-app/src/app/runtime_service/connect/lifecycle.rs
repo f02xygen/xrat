@@ -35,9 +35,19 @@ impl<'a> RuntimeService<'a> {
         } else {
             self.cleanup_inactive_tun_ownership().await?;
         }
-        if self.context.app_config.runtime.tun.kill_switch
-            != crate::app::config::TunKillSwitchMode::Strict
+        let should_disengage = if self.context.app_config.runtime.tun.kill_switch
+            == crate::app::config::TunKillSwitchMode::Strict
         {
+            false
+        } else if self.context.app_config.runtime.tun.kill_switch.is_enabled() {
+            true
+        } else {
+            crate::app::runtime_service::tun_ownership::load_ownership(
+                &self.context.runtime_paths.runtime_dir,
+            )
+            .is_some_and(|r| r.kill_switch_active)
+        };
+        if should_disengage {
             let _ = self.disengage_killswitch().await;
         }
         Ok(DisconnectResult { stopped_session })

@@ -33,14 +33,17 @@ impl<'a> RuntimeService<'a> {
                 AppError::InvalidArgument(format!("Failed to activate TUN kill switch: {err}"))
             })?;
 
+        #[allow(clippy::collapsible_if)]
         if let Some(mut record) =
             tun_ownership::load_ownership(&self.context.runtime_paths.runtime_dir)
-            && record.session_id == session_id
         {
-            record.kill_switch_active = true;
-            record.kill_switch_backend =
-                Some(self.process_ports.firewall.backend_name().to_string());
-            let _ = tun_ownership::save_ownership(&self.context.runtime_paths.runtime_dir, &record);
+            if record.session_id == session_id {
+                record.kill_switch_active = true;
+                record.kill_switch_backend =
+                    Some(self.process_ports.firewall.backend_name().to_string());
+                let _ =
+                    tun_ownership::save_ownership(&self.context.runtime_paths.runtime_dir, &record);
+            }
         }
 
         crate::app::events::record(
@@ -59,6 +62,16 @@ impl<'a> RuntimeService<'a> {
     }
 
     pub(crate) async fn disengage_killswitch(&self) -> crate::app::Result<()> {
+        let is_active = self.process_ports.firewall.is_active().unwrap_or(false);
+        let owned_active = tun_ownership::load_ownership(&self.context.runtime_paths.runtime_dir)
+            .is_some_and(|r| r.kill_switch_active);
+        if !is_active
+            && !owned_active
+            && !self.context.app_config.runtime.tun.kill_switch.is_enabled()
+        {
+            return Ok(());
+        }
+
         self.process_ports
             .firewall
             .remove_killswitch()

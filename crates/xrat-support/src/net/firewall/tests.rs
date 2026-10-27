@@ -2,6 +2,7 @@ use super::*;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 #[test]
+#[cfg(target_os = "linux")]
 fn generates_nftables_ruleset_structure() {
     let mut config = KillSwitchConfig::new("xrat0");
     config.allowed_endpoints.push(SocketAddr::new(
@@ -49,6 +50,7 @@ fn mock_firewall_lifecycle() {
 
 #[test]
 #[cfg(target_os = "linux")]
+#[ignore = "requires Linux namespaces and privileges"]
 fn real_linux_nftables_lifecycle_in_isolated_netns() {
     if !nftables::is_available() {
         return;
