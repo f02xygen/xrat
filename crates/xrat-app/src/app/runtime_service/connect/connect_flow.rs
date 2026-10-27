@@ -185,7 +185,10 @@ impl<'a> RuntimeService<'a> {
             }
         };
 
-        if let Err(error) = self.finish_tun_startup(session_id, process.pid).await {
+        if let Err(error) = self
+            .finish_tun_startup(session_id, process.pid, &launch.allowed_endpoints)
+            .await
+        {
             return Err(self
                 .rollback_runtime_error(previous_active_config_id, error)
                 .await);

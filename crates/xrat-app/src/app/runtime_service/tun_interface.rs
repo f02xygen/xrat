@@ -9,6 +9,8 @@ impl RuntimeService<'_> {
             session_id,
             engine: self.context.app_config.runtime.engine.clone(),
             policy_rules: vec![],
+            kill_switch_active: false,
+            kill_switch_backend: None,
         };
         if let Err(error) =
             tun_ownership::save_ownership(&self.context.runtime_paths.runtime_dir, &record)
@@ -59,6 +61,7 @@ impl RuntimeService<'_> {
         &self,
         session_id: i64,
         pid: u32,
+        allowed_endpoints: &[std::net::SocketAddr],
     ) -> crate::app::Result<()> {
         if !self.context.app_config.runtime.tun.enabled {
             return Ok(());
@@ -92,6 +95,10 @@ impl RuntimeService<'_> {
                 )
                 .await?;
             return Err(error);
+        }
+        if self.context.app_config.runtime.tun.kill_switch.is_enabled() {
+            self.engage_killswitch(session_id, allowed_endpoints)
+                .await?;
         }
         Ok(())
     }
@@ -175,6 +182,8 @@ impl RuntimeService<'_> {
                         session_id,
                         engine: self.context.app_config.runtime.engine.clone(),
                         policy_rules: rules.clone(),
+                        kill_switch_active: false,
+                        kill_switch_backend: None,
                     },
                 )?;
                 #[cfg(windows)]
