@@ -150,8 +150,8 @@ mod tests {
             split_mode: crate::app::config::TunSplitMode::Blacklist,
             ..Default::default()
         };
-        assert!(validate(&tun, "sing-box").is_err());
+        assert!(validate_for_platform(&tun, "sing-box", "linux").is_err());
         tun.split_mode = crate::app::config::TunSplitMode::All;
-        assert!(validate(&tun, "sing-box").is_ok());
+        assert!(validate_for_platform(&tun, "sing-box", "linux").is_ok());
     }
 }
