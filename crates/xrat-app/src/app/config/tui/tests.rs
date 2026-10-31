@@ -103,6 +103,21 @@ fn transparent_defaults_to_false_and_overrides_background_to_reset() {
     assert_eq!(palette.background, Color::Reset);
     assert_eq!(palette.accent, TuiTheme::Catppuccin.palette().accent);
 
+    let ansi_opaque: TuiSettings = toml::from_str("theme = 'ansi'").unwrap();
+    assert_eq!(
+        ansi_opaque.resolve(&ansi_opaque.theme).unwrap().background,
+        Color::Black
+    );
+    let ansi_transparent: TuiSettings =
+        toml::from_str("theme = 'ansi'\ntransparent = true").unwrap();
+    assert_eq!(
+        ansi_transparent
+            .resolve(&ansi_transparent.theme)
+            .unwrap()
+            .background,
+        Color::Reset
+    );
+
     let serialized = toml::to_string(&settings).unwrap();
     assert_eq!(
         toml::from_str::<TuiSettings>(&serialized).unwrap(),

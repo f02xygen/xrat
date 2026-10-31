@@ -721,8 +721,8 @@ transparent = true
 
 `theme` defaults to `"default"`. Choose `"default"`, `"ansi"`, `"catppuccin"`,
 `"dracula"`, `"gruvbox"`, `"nord"`, `"tokyo-night"`, `"light"`, or a custom
-name. RGB themes paint their own background; `ansi` keeps the terminal
-background and uses its ANSI palette. The RGB palettes adapt their muted and
+name. Built-in themes paint their own background by default (including `ansi` with black);
+`ansi` uses the terminal's standard ANSI color palette. The RGB palettes adapt their muted and
 status colors for readable text on both normal and selected surfaces. The `[ui]`
 spelling remains an alias for `[tui]`; use one spelling throughout your file.
 
