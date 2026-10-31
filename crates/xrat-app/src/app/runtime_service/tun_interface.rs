@@ -57,6 +57,42 @@ impl RuntimeService<'_> {
         }
         Ok(())
     }
+    pub(crate) async fn cleanup_failed_tun_process(
+        &self,
+        session_id: i64,
+        pid: u32,
+        error: AppError,
+    ) -> crate::app::Result<()> {
+        let termination = xray_runtime::terminate_process_gracefully_with_signals(
+            i64::from(pid),
+            SHUTDOWN_TIMEOUT,
+            self.process_ports.signals.as_ref(),
+        );
+        let cleanup = if termination.is_ok() {
+            self.cleanup_session_tun(session_id)
+        } else {
+            Err(AppError::InvalidArgument(
+                "TUN process termination failed; ownership retained".into(),
+            ))
+        };
+        let combined_error = match cleanup {
+            Ok(()) => error,
+            Err(cleanup) => AppError::InvalidArgument(format!("{error}; {cleanup}")),
+        };
+        self.context
+            .db
+            .update_runtime_session_state(
+                session_id,
+                RuntimeSessionStatus::Failed,
+                Some(i64::from(pid)),
+                None,
+                Some(&now_string()),
+                Some(&combined_error.to_string()),
+            )
+            .await?;
+        Err(combined_error)
+    }
+
     pub(crate) async fn finish_tun_startup(
         &self,
         session_id: i64,
@@ -67,38 +103,16 @@ impl RuntimeService<'_> {
             return Ok(());
         }
         if let Err(error) = self.record_ready_tun_ownership(session_id, pid).await {
-            let termination = xray_runtime::terminate_process_gracefully_with_signals(
-                i64::from(pid),
-                SHUTDOWN_TIMEOUT,
-                self.process_ports.signals.as_ref(),
-            );
-            let cleanup = if termination.is_ok() {
-                self.cleanup_session_tun(session_id)
-            } else {
-                Err(AppError::InvalidArgument(
-                    "TUN process termination failed; ownership retained".into(),
-                ))
-            };
-            let error = match cleanup {
-                Ok(()) => error,
-                Err(cleanup) => AppError::InvalidArgument(format!("{error}; {cleanup}")),
-            };
-            self.context
-                .db
-                .update_runtime_session_state(
-                    session_id,
-                    RuntimeSessionStatus::Failed,
-                    Some(i64::from(pid)),
-                    None,
-                    Some(&now_string()),
-                    Some(&error.to_string()),
-                )
-                .await?;
-            return Err(error);
+            return self
+                .cleanup_failed_tun_process(session_id, pid, error)
+                .await;
         }
-        if self.context.app_config.runtime.tun.kill_switch.is_enabled() {
-            self.engage_killswitch(session_id, allowed_endpoints)
-                .await?;
+        if self.context.app_config.runtime.tun.kill_switch.is_enabled()
+            && let Err(error) = self.engage_killswitch(session_id, allowed_endpoints).await
+        {
+            return self
+                .cleanup_failed_tun_process(session_id, pid, error)
+                .await;
         }
         Ok(())
     }

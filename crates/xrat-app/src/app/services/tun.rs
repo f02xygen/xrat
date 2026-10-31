@@ -217,6 +217,15 @@ pub(crate) async fn apply_with_ports(
             candidate.app_config.runtime.replace_active_session = replace_active;
             replaced = true;
         }
+    } else if !enabled
+        && candidate.app_config.runtime.tun.kill_switch
+            != crate::app::config::TunKillSwitchMode::Strict
+        && tun_ownership::load_ownership(&context.runtime_paths.runtime_dir)
+            .is_some_and(|r| r.kill_switch_active)
+    {
+        let _ = RuntimeService::with_process_ports(context, ports.clone())
+            .disengage_killswitch()
+            .await;
     }
     let after = match RuntimeService::with_process_ports(&candidate, ports.clone())
         .status()
