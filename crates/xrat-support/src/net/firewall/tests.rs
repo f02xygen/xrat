@@ -164,15 +164,6 @@ fn iptables_run_iptables_propagates_mutation_failures() {
 
 #[test]
 #[cfg(target_os = "linux")]
-fn iptables_check_chain_in_output_reports_status() {
-    // Checking a non-existent chain in OUTPUT returns Ok(false)
-    let res = iptables::check_chain_in_output("iptables", "NONEXISTENT_CHAIN_XYZ");
-    assert!(res.is_ok());
-    assert!(!res.unwrap());
-}
-
-#[test]
-#[cfg(target_os = "linux")]
 #[ignore = "requires Linux namespaces and privileges"]
 fn real_linux_nftables_lifecycle_in_isolated_netns() {
     if !nftables::is_available() {

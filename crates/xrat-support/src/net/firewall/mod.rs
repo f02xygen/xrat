@@ -74,7 +74,7 @@ impl FirewallOps for SystemFirewallOps {
                 }
             }
             #[allow(clippy::collapsible_if)]
-            if iptables::is_available() {
+            if find_in_path("iptables").is_some() {
                 if let Err(e) = iptables::remove() {
                     if err.is_none() {
                         err = Some(e);

@@ -6,6 +6,10 @@ use super::types::KillSwitchConfig;
 pub const CHAIN_NAME: &str = "XRAT_KS";
 pub const CHAIN_STAGING: &str = "XRAT_KS_STG";
 
+#[cfg(test)]
+#[path = "iptables_tests.rs"]
+mod tests;
+
 pub fn run_iptables(binary: &str, args: &[&str]) -> io::Result<()> {
     let output = std::process::Command::new(binary).args(args).output()?;
     if !output.status.success() {
@@ -21,10 +25,40 @@ pub fn run_iptables(binary: &str, args: &[&str]) -> io::Result<()> {
 }
 
 pub fn check_chain_in_output(binary: &str, chain: &str) -> io::Result<bool> {
-    let output = std::process::Command::new(binary)
-        .args(["-C", "OUTPUT", "-j", chain])
-        .output()?;
-    Ok(output.status.success())
+    if !chain_exists(binary, chain)? {
+        return Ok(false);
+    }
+    query_iptables(binary, &["-C", "OUTPUT", "-j", chain])
+}
+
+fn query_iptables(binary: &str, args: &[&str]) -> io::Result<bool> {
+    let output = std::process::Command::new(binary).args(args).output()?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(io::Error::other(format!(
+            "{binary} query failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))),
+    }
+}
+
+fn has_active_chain(binary: &str) -> io::Result<bool> {
+    Ok(check_chain_in_output(binary, CHAIN_NAME)? || check_chain_in_output(binary, CHAIN_STAGING)?)
+}
+
+fn chain_exists(binary: &str, chain: &str) -> io::Result<bool> {
+    let output = std::process::Command::new(binary).arg("-S").output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "{binary} failed to list chains: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+        let mut fields = line.split_whitespace();
+        fields.next() == Some("-N") && fields.next() == Some(chain)
+    }))
 }
 
 pub fn is_ipv6_disabled() -> bool {
@@ -72,7 +106,7 @@ pub(crate) fn is_available_internal(
 }
 
 pub fn is_active() -> io::Result<bool> {
-    let v4_active = check_chain_in_output("iptables", CHAIN_NAME)?;
+    let v4_active = has_active_chain("iptables")?;
     if !v4_active {
         return Ok(false);
     }
@@ -80,7 +114,7 @@ pub fn is_active() -> io::Result<bool> {
         if find_in_path("ip6tables").is_none() {
             return Ok(false);
         }
-        let v6_active = check_chain_in_output("ip6tables", CHAIN_NAME)?;
+        let v6_active = has_active_chain("ip6tables")?;
         if !v6_active {
             return Ok(false);
         }
@@ -121,21 +155,24 @@ pub(crate) fn apply_v6_staging(
     apply_staging("ip6tables", config, false)
 }
 
-fn cleanup_chain(binary: &str, chain: &str) {
-    let _ = std::process::Command::new(binary)
-        .args(["-D", "OUTPUT", "-j", chain])
-        .output();
-    let _ = std::process::Command::new(binary)
-        .args(["-F", chain])
-        .output();
-    let _ = std::process::Command::new(binary)
-        .args(["-X", chain])
-        .output();
+fn cleanup_chain(binary: &str, chain: &str) -> io::Result<()> {
+    while check_chain_in_output(binary, chain)? {
+        run_iptables(binary, &["-D", "OUTPUT", "-j", chain])?;
+    }
+    if chain_exists(binary, chain)? {
+        run_iptables(binary, &["-F", chain])?;
+        run_iptables(binary, &["-X", chain])?;
+    }
+    Ok(())
 }
 
 fn apply_staging(binary: &str, config: &KillSwitchConfig, is_v4: bool) -> io::Result<()> {
-    // 1. Clean up any leftover staging chain (flush/delete).
-    cleanup_chain(binary, CHAIN_STAGING);
+    // An interrupted swap may leave staging as the only attached policy.
+    if check_chain_in_output(binary, CHAIN_STAGING)? {
+        cleanup_chain(binary, CHAIN_NAME)?;
+        run_iptables(binary, &["-E", CHAIN_STAGING, CHAIN_NAME])?;
+    }
+    cleanup_chain(binary, CHAIN_STAGING)?;
 
     // 2. Create XRAT_KS_STG.
     run_iptables(binary, &["-N", CHAIN_STAGING])?;
@@ -299,26 +336,13 @@ fn apply_staging(binary: &str, config: &KillSwitchConfig, is_v4: bool) -> io::Re
         // - Insert XRAT_KS_STG at OUTPUT 1.
         run_iptables(binary, &["-I", "OUTPUT", "1", "-j", CHAIN_STAGING])?;
         // - Delete old XRAT_KS from OUTPUT.
-        run_iptables(binary, &["-D", "OUTPUT", "-j", CHAIN_NAME])?;
-        while let Ok(true) = check_chain_in_output(binary, CHAIN_NAME) {
-            if run_iptables(binary, &["-D", "OUTPUT", "-j", CHAIN_NAME]).is_err() {
-                break;
-            }
-        }
-        // - Flush & delete old XRAT_KS chain.
-        run_iptables(binary, &["-F", CHAIN_NAME])?;
-        run_iptables(binary, &["-X", CHAIN_NAME])?;
+        cleanup_chain(binary, CHAIN_NAME)?;
         // - Rename XRAT_KS_STG to XRAT_KS.
         run_iptables(binary, &["-E", CHAIN_STAGING, CHAIN_NAME])?;
     } else {
         // If XRAT_KS is not attached to OUTPUT:
         // - Flush/delete any unattached XRAT_KS.
-        let _ = std::process::Command::new(binary)
-            .args(["-F", CHAIN_NAME])
-            .output();
-        let _ = std::process::Command::new(binary)
-            .args(["-X", CHAIN_NAME])
-            .output();
+        cleanup_chain(binary, CHAIN_NAME)?;
         // - Rename XRAT_KS_STG to XRAT_KS.
         run_iptables(binary, &["-E", CHAIN_STAGING, CHAIN_NAME])?;
         // - Insert XRAT_KS at OUTPUT 1.
@@ -342,8 +366,8 @@ pub fn remove() -> io::Result<()> {
 }
 
 fn remove_v4() -> io::Result<()> {
-    cleanup_chain("iptables", CHAIN_STAGING);
-    cleanup_chain("iptables", CHAIN_NAME);
+    cleanup_chain("iptables", CHAIN_STAGING)?;
+    cleanup_chain("iptables", CHAIN_NAME)?;
     Ok(())
 }
 
@@ -351,7 +375,7 @@ fn remove_v6() -> io::Result<()> {
     if find_in_path("ip6tables").is_none() {
         return Ok(());
     }
-    cleanup_chain("ip6tables", CHAIN_STAGING);
-    cleanup_chain("ip6tables", CHAIN_NAME);
+    cleanup_chain("ip6tables", CHAIN_STAGING)?;
+    cleanup_chain("ip6tables", CHAIN_NAME)?;
     Ok(())
 }
