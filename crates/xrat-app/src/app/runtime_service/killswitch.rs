@@ -62,7 +62,9 @@ impl<'a> RuntimeService<'a> {
     }
 
     pub(crate) async fn disengage_killswitch(&self) -> crate::app::Result<()> {
-        let is_active = self.process_ports.firewall.is_active().unwrap_or(false);
+        let is_active = self.process_ports.firewall.is_active().map_err(|error| {
+            AppError::InvalidArgument(format!("Failed to query TUN kill switch: {error}"))
+        })?;
         let owned_active = tun_ownership::load_ownership(&self.context.runtime_paths.runtime_dir)
             .is_some_and(|r| r.kill_switch_active);
         if !is_active

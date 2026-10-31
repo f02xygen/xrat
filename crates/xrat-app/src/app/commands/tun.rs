@@ -149,7 +149,9 @@ async fn killswitch_command(
             )
             .await?;
             let ports = xrat_support::readiness::RuntimeProcessPorts::default();
-            let _ = ports.firewall.remove_killswitch();
+            ports.firewall.remove_killswitch().map_err(|error| {
+                AppError::InvalidArgument(format!("Failed to deactivate TUN kill switch: {error}"))
+            })?;
             if args.json {
                 println!("{}", serde_json::to_string_pretty(&outcome)?);
             } else {

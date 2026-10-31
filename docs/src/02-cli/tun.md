@@ -17,7 +17,7 @@ Enable TUN on the current connected config, or return it to local proxy mode:
 
 ```bash
 xrat tun enable
-xrat tun enable --kill-switch auto
+xrat tun enable --kill-switch
 xrat tun disable
 xrat tun enable --json
 ```
