@@ -131,11 +131,16 @@ impl FirewallOps for SystemFirewallOps {
 #[derive(Debug, Default)]
 pub struct MockFirewallOps {
     pub active: AtomicBool,
+    pub fail_apply: AtomicBool,
+    pub fail_remove: AtomicBool,
     pub last_config: Mutex<Option<KillSwitchConfig>>,
 }
 
 impl FirewallOps for MockFirewallOps {
     fn apply_killswitch(&self, config: &KillSwitchConfig) -> io::Result<()> {
+        if self.fail_apply.load(Ordering::SeqCst) {
+            return Err(io::Error::other("mock firewall apply failure"));
+        }
         self.active.store(true, Ordering::SeqCst);
         let mut guard = self.last_config.lock().unwrap();
         *guard = Some(config.clone());
@@ -143,6 +148,9 @@ impl FirewallOps for MockFirewallOps {
     }
 
     fn remove_killswitch(&self) -> io::Result<()> {
+        if self.fail_remove.load(Ordering::SeqCst) {
+            return Err(io::Error::other("mock firewall remove failure"));
+        }
         self.active.store(false, Ordering::SeqCst);
         let mut guard = self.last_config.lock().unwrap();
         *guard = None;
