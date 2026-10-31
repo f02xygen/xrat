@@ -87,3 +87,25 @@ fn border_style_defaults_to_plain_and_parses_rounded() {
 
     assert!(toml::from_str::<TuiSettings>("border_style = 'double'").is_err());
 }
+
+#[test]
+fn transparent_defaults_to_false_and_overrides_background_to_reset() {
+    let settings: TuiSettings = toml::from_str("").unwrap();
+    assert!(!settings.transparent);
+    assert_ne!(
+        settings.resolve(&settings.theme).unwrap().background,
+        Color::Reset
+    );
+
+    let settings: TuiSettings = toml::from_str("theme = 'catppuccin'\ntransparent = true").unwrap();
+    assert!(settings.transparent);
+    let palette = settings.resolve(&settings.theme).unwrap();
+    assert_eq!(palette.background, Color::Reset);
+    assert_eq!(palette.accent, TuiTheme::Catppuccin.palette().accent);
+
+    let serialized = toml::to_string(&settings).unwrap();
+    assert_eq!(
+        toml::from_str::<TuiSettings>(&serialized).unwrap(),
+        settings
+    );
+}
